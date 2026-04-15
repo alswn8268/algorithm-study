@@ -1,0 +1,48 @@
+name: 🌿 Sync kmj code to Notion
+
+on:
+  push:
+      branches: [kmj]
+          paths:
+                - 'week*/**/*.py'
+
+                jobs:
+                  sync:
+                      name: Notion 코드 블록 업데이트
+                          runs-on: ubuntu-latest
+
+                              steps:
+                                    - name: Checkout repository
+                                            uses: actions/checkout@v4
+                                                    with:
+                                                              fetch-depth: 2
+
+                                                                    - name: Collect changed Python files
+                                                                            id: changed
+                                                                                    run: |
+                                                                                              git diff --name-only HEAD~1 HEAD \
+                                                                                                          | grep -E '^week[0-9]+/.+\.py$' \
+                                                                                                                      > changed_files.txt || true
+                                                                                                                                echo "--- 변경 파일 목록 ---"
+                                                                                                                                          cat changed_files.txt
+                                                                                                                                                    echo "count=$(wc -l < changed_files.txt)" >> $GITHUB_OUTPUT
+                                                                                                                                                    
+                                                                                                                                                          - name: Skip if no Python files changed
+                                                                                                                                                                  if: steps.changed.outputs.count == '0'
+                                                                                                                                                                          run: |
+                                                                                                                                                                                    echo "동기화할 파일이 없습니다."
+                                                                                                                                                                                              exit 0
+                                                                                                                                                                                              
+                                                                                                                                                                                                    - name: Set up Python
+                                                                                                                                                                                                            uses: actions/setup-python@v5
+                                                                                                                                                                                                                    with:
+                                                                                                                                                                                                                              python-version: '3.11'
+                                                                                                                                                                                                                              
+                                                                                                                                                                                                                                    - name: Install dependencies
+                                                                                                                                                                                                                                            run: pip install requests
+                                                                                                                                                                                                                                            
+                                                                                                                                                                                                                                                  - name: Sync to Notion
+                                                                                                                                                                                                                                                          env:
+                                                                                                                                                                                                                                                                    NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+                                                                                                                                                                                                                                                                              NOTION_PARENT_PAGE_ID: ${{ secrets.NOTION_PARENT_PAGE_ID }}
+                                                                                                                                                                                                                                                                                      run: python scripts/sync_to_notion.py changed_files.txt
