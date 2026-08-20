@@ -3,11 +3,14 @@
 docs/STYLE_GUIDE.md의 고정 규칙을 그대로 코드로 옮긴 것이다. 규칙은
 2025 트렌드("낙서형 흰둥이", 중안부가 길어지는 현상)에 맞춰 갱신됐다.
 
+- 형태  : 큰 머리 + 작은 몸통이 겹친 구조. 통짜 원 하나면 감자에 혹이
+          붙은 모양이 되고 동물로 안 읽힌다
 - 눈    : 아주 작은 점. 얼굴 위쪽에 좁게. 크게 그리지 않는다
 - 중안부: 눈과 입 사이를 일부러 멀리 벌린다 (현재 트렌드의 핵심 매력 포인트)
-- 선    : 실루엣 바깥 경계만 한 줄로. 부품마다 윤곽을 그으면 도형을 붙인
-          그림이 된다. 몸통·귀·팔다리를 한 마스크로 합친 뒤 경계만 긋는다
-- 비율  : 좌우 대칭 금지. 찌그러지고 팔다리 길이가 제각각
+- 선    : 바깥 윤곽은 실루엣 하나로 이어 긋고, 귀·팔다리는 **안쪽 구분선과
+          한 톤 낮춘 평면 명암**으로 나눈다. 몸에 가려지는 부분은 그리지
+          않는다 (안 그러면 팔다리가 몸을 투과해 보인다)
+- 비율  : 좌우를 살짝 다르게. 다만 과하게 일그러뜨리지 않는다
 - 채색  : 깔끔한 평면 채색. 흰/크림색 몸이 주류다
 
 **캐릭터 정체성(CharacterSpec)과 손떨림(seed)은 분리돼 있다.** 32컷 한 세트는
@@ -250,66 +253,6 @@ def silhouette_outline(mask: Image.Image, width: int) -> Image.Image:
     return ImageChops.difference(grown, shrunk)
 
 
-def scribble_fill(
-    canvas: Image.Image, outline: list[tuple[float, float]],
-    color: tuple[int, int, int, int], rng: random.Random, spill: float = 7.0,
-) -> None:
-    """윤곽선에서 어긋난 문지르기로 채색한다.
-
-    색칠 영역을 통째로 밀어두기 때문에 한쪽은 선 밖으로 삐져나가고 반대쪽은
-    안쪽이 하얗게 빈다. 획마다 굵기와 각도를 바꿔 빗금 패턴처럼 규칙적으로
-    보이지 않게 한다. 그라데이션은 쓰지 않는다.
-    """
-    if len(outline) < 3:
-        return
-
-    size = canvas.size
-    ox, oy = rng.uniform(-spill, spill), rng.uniform(-spill, spill)
-    shifted = [(x + ox, y + oy) for x, y in outline]
-
-    region = _polygon_mask(size, shifted)
-
-    strokes = Image.new("L", size, 0)
-    sdraw = ImageDraw.Draw(strokes)
-
-    xs = [p[0] for p in shifted]
-    ys = [p[1] for p in shifted]
-    x0, x1 = min(xs) - 30, max(xs) + 30
-    y0, y1 = min(ys) - 30, max(ys) + 30
-    height = y1 - y0
-
-    # 기울기는 fill 하나당 한 번만 정한다. 획마다 바꾸면 선이 부채꼴로 벌어져
-    # 커다란 흰 쐐기가 생기고, 문지른 게 아니라 빗금무늬처럼 보인다.
-    skew = height * math.tan(rng.choice([-1, 1]) * rng.uniform(0.30, 0.65))
-
-    x = x0 - abs(skew)
-    while x < x1 + abs(skew):
-        step = rng.uniform(10.0, 15.0)
-        # 획을 간격보다 굵게 그어 대부분 겹치게 하고, 가끔만 틈이 벌어지게 한다
-        stroke_w = int(step * rng.uniform(1.3, 2.1))
-        if rng.random() > 0.08:
-            sdraw.line(
-                [(x + rng.uniform(-4, 4), y0), (x + skew + rng.uniform(-4, 4), y1)],
-                fill=255, width=stroke_w,
-            )
-        x += step
-
-    canvas.paste(color, (0, 0), ImageChops.multiply(strokes, region))
-
-    # 경계 밖으로 튀어나간 몇 획 — 마스크를 거치지 않아 확실히 삐져나간다
-    overshoot = Image.new("L", size, 0)
-    odraw = ImageDraw.Draw(overshoot)
-    for _ in range(rng.randint(2, 4)):
-        px, py = rng.choice(outline)
-        ang = rng.uniform(0, math.tau)
-        length = spill * rng.uniform(1.4, 3.0)
-        odraw.line(
-            [(px, py), (px + math.cos(ang) * length, py + math.sin(ang) * length)],
-            fill=255, width=int(spill * rng.uniform(1.0, 1.8)),
-        )
-    canvas.paste(color, (0, 0), overshoot)
-
-
 def _dot(draw: ImageDraw.ImageDraw, cx: float, cy: float, r: float, color=INK) -> None:
     draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=color)
 
@@ -424,47 +367,6 @@ _POSE_ANGLES = {
 }
 
 
-def _draw_limbs(canvas, draw, rng, body, cx, cy, rx, ry, pose: str, lw: int,
-                fill_color, limb_delta: float = 0.0) -> None:
-    """팔다리는 몸통 윤곽선에서 출발해 바깥으로만 뻗는다 (몸을 뚫지 않게)."""
-    left_deg, right_deg = _POSE_ANGLES.get(pose, _POSE_ANGLES["down"])
-    left_deg -= limb_delta
-    right_deg += limb_delta
-
-    def paw(px, py, r):
-        """손/발 끝의 동그란 뭉치. 이게 없으면 팔다리가 그냥 뻗은 선으로 보인다."""
-        blob = wobbly_ellipse(px, py, r, r * rng.uniform(0.85, 1.1), rng, 26, 0.16)
-        canvas.paste(fill_color, (0, 0), _polygon_mask(canvas.size, blob))
-        pen_stroke(draw, blob, rng, lw, 2, drift=1.5)
-
-    for angle_deg, length in (
-        (left_deg, rx * rng.uniform(0.48, 0.70)),
-        (right_deg, rx * rng.uniform(0.48, 0.70)),
-    ):
-        a = math.radians(angle_deg)
-        # 팔이 위로 갈 땐 어깨 쪽, 아래로 갈 땐 옆구리 아래쪽에서 나와야
-        # 몸에서 뻗어나온 것처럼 보인다
-        left_side = math.cos(a) < 0
-        lift = -1 if math.sin(a) < 0 else 1
-        attach = (180 + lift * 22) if left_side else (0 - lift * 22)
-        x0, y0 = _point_on(body, cx, cy, attach + rng.uniform(-8, 8))
-
-        mid = (x0 + math.cos(a) * length * 0.55 + rng.uniform(-6, 6),
-               y0 + math.sin(a) * length * 0.55 + rng.uniform(-6, 6))
-        end = (x0 + math.cos(a) * length, y0 + math.sin(a) * length)
-        pen_stroke(draw, [(x0, y0), mid, end], rng, lw, 2)
-        paw(end[0], end[1], rx * rng.uniform(0.085, 0.115))
-
-    # 다리 — 길이를 확실히 다르게
-    for sx in (-1, 1):
-        x0, y0 = _point_on(body, cx, cy, 90 + sx * rng.uniform(14, 30))
-        leg = ry * rng.uniform(0.26, 0.42)
-        knee = (x0 + rng.uniform(-6, 6), y0 + leg * 0.55)
-        foot = (x0 + sx * rng.uniform(4, 16), y0 + leg)
-        pen_stroke(draw, [(x0, y0), knee, foot], rng, lw, 2)
-        paw(foot[0], foot[1], rx * rng.uniform(0.085, 0.115))
-
-
 def _luminance(color: tuple[int, int, int, int]) -> float:
     r, g, b = color[:3]
     return 0.2126 * r + 0.7152 * g + 0.0722 * b
@@ -572,65 +474,69 @@ def _draw_teeth(draw, rng, cx, cy, rx, lw: int) -> None:
         pen_stroke(draw, rect, rng, max(2, lw - 1), 1)
 
 
-def _stub(sdraw, p0, p1, r0: float, r1: float) -> None:
-    """몸에서 자라난 통통한 팔다리 하나. 굵은 선 + 양 끝 원으로 그린다.
+def _capsule(p0, p1, r0: float, r1: float, steps: int = 12) -> list[tuple[float, float]]:
+    """양 끝이 둥근 캡슐 폴리곤. 팔다리 한 짝을 하나의 덩어리로 만든다."""
+    (x0, y0), (x1, y1) = p0, p1
+    ang = math.atan2(y1 - y0, x1 - x0)
+    points = []
+    for i in range(steps + 1):          # 뿌리쪽 반원
+        a = ang + math.pi / 2 + math.pi * i / steps
+        points.append((x0 + math.cos(a) * r0, y0 + math.sin(a) * r0))
+    for i in range(steps + 1):          # 끝쪽 반원
+        a = ang - math.pi / 2 + math.pi * i / steps
+        points.append((x1 + math.cos(a) * r1, y1 + math.sin(a) * r1))
+    return points
 
-    가는 선 끝에 동그라미를 붙이면 '막대에 공을 단' 모양이 된다.
-    실루엣에 합쳐질 두툼한 덩어리여야 몸의 일부로 보인다.
+
+def _darken(color: tuple[int, int, int, int], amount: float) -> tuple[int, int, int, int]:
+    r, g, b, a = color
+    return (int(r * (1 - amount)), int(g * (1 - amount)), int(b * (1 - amount)), a)
+
+
+def _limb_shapes(rng, trunk, cx, cy, body_rx, body_ry, rx, ry,
+                 pose: str, limb_delta: float = 0.0) -> list[list[tuple[float, float]]]:
+    """팔 두 짝 + 다리 두 짝을 캡슐 폴리곤으로 만든다.
+
+    팔은 머리가 아니라 **몸통**에서 나와야 동물로 보인다.
     """
-    sdraw.line([p0, p1], fill=255, width=int(max(2, (r0 + r1))))
-    for (px, py), r in ((p0, r0), (p1, r1)):
-        sdraw.ellipse([px - r, py - r, px + r, py + r], fill=255)
-
-
-def _add_limbs_to_silhouette(sdraw, rng, body, cx, cy, rx, ry,
-                             pose: str, limb_delta: float = 0.0) -> None:
     left_deg, right_deg = _POSE_ANGLES.get(pose, _POSE_ANGLES["down"])
     left_deg -= limb_delta
     right_deg += limb_delta
 
+    shapes = []
     for angle_deg in (left_deg, right_deg):
         a = math.radians(angle_deg)
         left_side = math.cos(a) < 0
         lift = -1 if math.sin(a) < 0 else 1
-        attach = (180 + lift * 20) if left_side else (0 - lift * 20)
-        x0, y0 = _point_on(body, cx, cy, attach + rng.uniform(-8, 8))
+        attach = (180 + lift * 22) if left_side else (0 - lift * 22)
+        x0, y0 = _point_on(trunk, cx, cy, attach + rng.uniform(-8, 8))
 
-        length = rx * rng.uniform(0.44, 0.60)
+        length = rx * rng.uniform(0.40, 0.54)
         end = (x0 + math.cos(a) * length, y0 + math.sin(a) * length)
-        # 뿌리는 두껍고 끝은 살짝 가늘게 — 몸에서 뻗어나온 느낌
-        _stub(sdraw, (x0, y0), end, rx * rng.uniform(0.14, 0.17), rx * rng.uniform(0.075, 0.10))
+        shapes.append(_capsule((x0, y0), end,
+                               rx * rng.uniform(0.115, 0.135),
+                               rx * rng.uniform(0.095, 0.115)))
 
     for sx in (-1, 1):
-        x0, y0 = _point_on(body, cx, cy, 90 + sx * rng.uniform(16, 30))
-        leg = ry * rng.uniform(0.16, 0.26)
-        foot = (x0 + sx * rng.uniform(2, 10), y0 + leg)
-        _stub(sdraw, (x0, y0), foot, rx * rng.uniform(0.14, 0.17), rx * rng.uniform(0.10, 0.13))
+        x0, y0 = _point_on(trunk, cx, cy, 90 + sx * rng.uniform(24, 42))
+        leg = ry * rng.uniform(0.14, 0.21)
+        foot = (x0 + sx * rng.uniform(1, 7), y0 + leg)
+        shapes.append(_capsule((x0, y0), foot,
+                               rx * rng.uniform(0.115, 0.135),
+                               rx * rng.uniform(0.105, 0.125)))
+    return shapes
 
 
-def _add_tail_to_silhouette(sdraw, rng, body, cx, cy, rx, ry, kind: str) -> None:
+def _tail_shape(rng, trunk, cx, cy, body_rx, body_ry, rx,
+                kind: str) -> list[list[tuple[float, float]]]:
     if kind == "none":
-        return
-    base = _point_on(body, cx, cy, rng.uniform(30, 50))
+        return []
+    base = _point_on(trunk, cx, cy, rng.uniform(15, 45))
     if kind == "stub":
-        r = rx * rng.uniform(0.11, 0.14)
-        tip = (base[0] + rx * 0.10, base[1] + ry * 0.03)
-        sdraw.ellipse([tip[0] - r, tip[1] - r, tip[0] + r, tip[1] + r], fill=255)
-    else:  # curl
-        tip = (base[0] + rx * 0.22, base[1] - ry * 0.16)
-        _stub(sdraw, base, tip, rx * 0.11, rx * 0.07)
-
-
-def _draw_tail(draw, rng, body, cx, cy, rx, ry, kind: str, lw: int) -> None:
-    if kind == "none":
-        return
-    base = _point_on(body, cx, cy, rng.uniform(28, 48))
-    if kind == "stub":
-        pen_stroke(draw, wobbly_ellipse(base[0] + rx * 0.10, base[1] + ry * 0.04,
-                                        rx * 0.13, rx * 0.12, rng, 28, 0.16), rng, lw, 2)
-    elif kind == "curl":
-        pts = _arc_points(base[0] + rx * 0.16, base[1] - ry * 0.02, rx * 0.18, ry * 0.20, 120, -80, 20)
-        pen_stroke(draw, _roughen(pts, rng, rx * 0.02), rng, lw, 2)
+        return [wobbly_ellipse(base[0] + rx * 0.07, base[1],
+                               rx * 0.11, rx * 0.10, rng, 28, 0.08)]
+    tip = (base[0] + rx * 0.20, base[1] - body_ry * 0.55)
+    return [_capsule(base, tip, rx * 0.085, rx * 0.055)]
 
 
 def _draw_extras(draw, rng, cx, cy, rx, ry, extras: list[str], lw: int) -> None:
@@ -810,10 +716,10 @@ def render_character(
 
     # 중심과 기울기만 흔들고, 크기 비율은 캐릭터 정체성이라 고정
     cx = S * 0.5 + rng.uniform(-S * 0.015, S * 0.015)
-    cy = S * 0.52 + rng.uniform(-S * 0.012, S * 0.012)
+    cy = S * 0.50 + rng.uniform(-S * 0.010, S * 0.010)
     rx = S * spec_char.rx_ratio
     ry = S * spec_char.ry_ratio
-    tilt = rng.uniform(-0.12, 0.12)
+    tilt = rng.uniform(-0.05, 0.05)
 
     # 모션은 난수를 뽑은 *뒤에* 더한다. 순서를 바꾸면 프레임마다 rng 소비가
     # 달라져 선이 통째로 다시 그려지고 화면이 지글거린다.
@@ -822,73 +728,115 @@ def render_character(
     rx *= 1.0 + move.squash * 0.5
     ry *= 1.0 - move.squash
 
-    body = wobbly_ellipse(cx, cy, rx, ry, rng, 96, rng.uniform(0.05, 0.09),
-                          tilt=tilt, bulge=spec_char.bulge)
-    ears = _ear_shapes(rng, cx, cy, rx, ry, spec_char.ear)
+    # --- 1) 머리 + 몸통을 나눠 동물 형태를 만든다 --------------------
+    # 통짜 원 하나면 감자에 혹이 붙은 모양이 된다. 큰 머리 + 작은 몸통이
+    # 겹쳐야 비로소 '동물'로 읽힌다.
+    head_cy = cy - ry * 0.26
+    head_rx, head_ry = rx * 0.98, ry * 0.86
+    body_cy = cy + ry * 0.62
+    body_rx, body_ry = rx * 0.76, ry * 0.52
 
-    # --- 1) 실루엣을 하나로 합친다 -------------------------------------
-    # 부품마다 따로 칠하고 따로 윤곽을 그으면 "몸에 도형을 붙인" 그림이 된다.
-    # 몸통·귀·볼·팔다리·꼬리를 한 마스크로 합친 뒤 바깥 경계만 한 줄로 긋는다.
-    silhouette = Image.new("L", (S, S), 0)
-    sdraw = ImageDraw.Draw(silhouette)
-    sdraw.polygon(body, fill=255)
-    for ear in ears:
-        sdraw.polygon(ear, fill=255)
+    # 왜곡은 약하게. 과하면 찌그러진 덩어리로 보인다.
+    head = wobbly_ellipse(cx, head_cy, head_rx, head_ry, rng,
+                          96, rng.uniform(0.018, 0.032), tilt=tilt)
+    trunk = wobbly_ellipse(cx + rng.uniform(-rx * 0.03, rx * 0.03), body_cy,
+                           body_rx, body_ry, rng, 72, rng.uniform(0.020, 0.035),
+                           tilt=tilt * 0.5, bulge=spec_char.bulge * 0.5)
+    ears = _ear_shapes(rng, cx, head_cy, head_rx, head_ry, spec_char.ear)
 
+    limbs = _limb_shapes(rng, trunk, cx, body_cy, body_rx, body_ry, rx, ry,
+                         face.get("pose", "down"), move.limb)
+    tail = _tail_shape(rng, trunk, cx, body_cy, body_rx, body_ry, rx, spec_char.tail)
+
+    cheeks: list[list[tuple[float, float]]] = []
     if spec_char.cheeks:
         for sx in (-1, 1):
-            px = cx + sx * rx * rng.uniform(0.50, 0.60)
-            py = cy + ry * rng.uniform(0.28, 0.38)
-            sdraw.polygon(
-                wobbly_ellipse(px, py, rx * rng.uniform(0.32, 0.38),
-                               rx * rng.uniform(0.26, 0.31), rng, 40, 0.12),
-                fill=255,
-            )
+            cheeks.append(wobbly_ellipse(
+                cx + sx * head_rx * rng.uniform(0.54, 0.62),
+                head_cy + head_ry * rng.uniform(0.26, 0.36),
+                head_rx * rng.uniform(0.32, 0.37), head_rx * rng.uniform(0.27, 0.31),
+                rng, 40, 0.06))
 
-    _add_limbs_to_silhouette(sdraw, rng, body, cx, cy, rx, ry,
-                             face.get("pose", "down"), move.limb)
-    _add_tail_to_silhouette(sdraw, rng, body, cx, cy, rx, ry, spec_char.tail)
+    # --- 2) 실루엣 하나로 합치기 ---------------------------------------
+    parts = ears + limbs + tail + cheeks          # 몸에서 뻗어나온 부품들
+    silhouette = Image.new("L", (S, S), 0)
+    sdraw = ImageDraw.Draw(silhouette)
+    for poly in [head, trunk, *parts]:
+        sdraw.polygon(poly, fill=255)
+    silhouette = wobble_mask(silhouette, rng, amount=S * 0.0015)
 
-    # 합친 뒤 통째로 흔들어야 한 번에 그린 윤곽처럼 보인다
-    silhouette = wobble_mask(silhouette, rng, amount=S * 0.004)
-
-    # --- 2) 깔끔한 평면 채색 + 실루엣 외곽선 한 줄 ----------------------
+    # --- 3) 평면 채색 + 부품 명암 + 안쪽 구분선 ------------------------
     canvas.paste(spec_char.color, (0, 0), silhouette)
+
+    # 몸통·머리에 가려지는 부분은 칠하지도 긋지도 않는다.
+    # 안 그러면 팔다리가 몸을 투과해 보이는 X-ray 그림이 된다.
+    core = Image.new("L", (S, S), 0)
+    core_draw = ImageDraw.Draw(core)
+    core_draw.polygon(head, fill=255)
+    core_draw.polygon(trunk, fill=255)
+    not_core = ImageChops.invert(core)
+
+    # 귀·팔다리·꼬리에만 한 톤 낮춘 평면 명암. 볼은 얼굴의 일부라 제외한다
+    # (칠하면 얼굴에 회색 원 두 개를 붙인 꼴이 된다).
+    shade = _darken(spec_char.color, 0.09)
+    appendages = ears + limbs + tail
+    app_mask = Image.new("L", (S, S), 0)
+    app_draw = ImageDraw.Draw(app_mask)
+    for poly in appendages:
+        app_draw.polygon(poly, fill=255)
+    canvas.paste(shade, (0, 0),
+                 ImageChops.multiply(ImageChops.multiply(app_mask, not_core), silhouette))
+
+    # 안쪽 구분선. 바깥 윤곽은 하나로 이어진 채 두고 안쪽에만 선이 생겨야
+    # "한 마리인데 팔다리가 구분되는" 그림이 된다.
+    interior = silhouette.filter(ImageFilter.MinFilter(max(3, lw | 1)))
+    inner_ink = _darken(spec_char.color, 0.45)
+    inner_w = max(3, (lw - 1) | 1)
+
+    for poly in appendages:
+        band = silhouette_outline(_polygon_mask((S, S), poly), inner_w)
+        band = ImageChops.multiply(ImageChops.multiply(band, interior), not_core)
+        canvas.paste(inner_ink, (0, 0), band)
+
+    # 머리와 몸통이 만나는 자리 — 가슴/배 선
+    neck = silhouette_outline(_polygon_mask((S, S), trunk), inner_w)
+    canvas.paste(inner_ink, (0, 0), ImageChops.multiply(neck, interior))
+
     canvas.paste(INK, (0, 0), silhouette_outline(silhouette, lw))
 
     # --- 3) 얼굴 -------------------------------------------------------
     # 트렌드: 중안부가 길다. 눈은 위쪽에 작고 좁게, 입은 한참 아래에.
-    eye_y = cy - ry * rng.uniform(0.30, 0.38)
-    mouth_y = cy + ry * rng.uniform(0.26, 0.36)
-    nose_y = mouth_y - rx * rng.uniform(0.16, 0.22)
+    eye_y = head_cy - head_ry * rng.uniform(0.24, 0.32)
+    mouth_y = head_cy + head_ry * rng.uniform(0.34, 0.46)
+    nose_y = mouth_y - head_rx * rng.uniform(0.17, 0.23)
 
     # 흰둥이처럼 몸이 이미 밝으면 주둥이를 칠해도 보이지 않는다.
     # 대비가 안 나오는 칠은 그리지 않는 게 낫다 — 흰 얼룩만 남는다.
     if spec_char.muzzle and _luminance(spec_char.color) < 235:
-        snout = wobbly_ellipse(cx + rng.uniform(-rx * 0.03, rx * 0.03),
+        snout = wobbly_ellipse(cx + rng.uniform(-head_rx * 0.03, head_rx * 0.03),
                                (nose_y + mouth_y) * 0.5,
-                               rx * 0.30, rx * 0.22, rng, 44, 0.10)
+                               head_rx * 0.30, head_rx * 0.22, rng, 44, 0.06)
         canvas.paste(_lighten(spec_char.color, 0.6), (0, 0),
                      _polygon_mask((S, S), snout))
 
-    eye_dx = rx * spec_char.eye_spread
+    eye_dx = head_rx * spec_char.eye_spread
     _draw_eyes(draw, rng,
                cx - eye_dx * rng.uniform(0.94, 1.06),
                cx + eye_dx * rng.uniform(0.94, 1.06),
                eye_y, S * 0.0085 * spec_char.eye_scale, face.get("eyes", "dots"), lw)
 
     if spec_char.nose == "beak":
-        _draw_beak(draw, rng, cx, (nose_y + mouth_y) * 0.5, rx, lw)
+        _draw_beak(draw, rng, cx, (nose_y + mouth_y) * 0.5, head_rx, lw)
     else:
-        _draw_nose(draw, rng, cx, nose_y, rx, spec_char.nose, lw)
+        _draw_nose(draw, rng, cx, nose_y, head_rx, spec_char.nose, lw)
         if spec_char.whiskers:
-            _draw_whiskers(draw, rng, cx, nose_y, rx, lw)
-        _draw_mouth(draw, rng, cx + rng.uniform(-rx * 0.04, rx * 0.04),
-                    mouth_y, rx * 0.34, face.get("mouth", "smile"), lw)
+            _draw_whiskers(draw, rng, cx, nose_y, head_rx, lw)
+        _draw_mouth(draw, rng, cx + rng.uniform(-head_rx * 0.04, head_rx * 0.04),
+                    mouth_y, head_rx * 0.34, face.get("mouth", "smile"), lw)
         if spec_char.teeth:
-            _draw_teeth(draw, rng, cx, mouth_y + rx * 0.05, rx, lw)
+            _draw_teeth(draw, rng, cx, mouth_y + head_rx * 0.05, head_rx, lw)
 
-    _draw_extras(draw, rng, cx, cy, rx, ry, face.get("extras", []), lw)
+    _draw_extras(draw, rng, cx, head_cy, head_rx, head_ry, face.get("extras", []), lw)
 
     return canvas.resize((size, size), Image.LANCZOS)
 

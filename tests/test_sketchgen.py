@@ -211,3 +211,68 @@ def test_animation_gif_keeps_transparent_background(tmp_path):
         assert gif.n_frames == 4
         assert "transparency" in gif.info
         assert gif.convert("RGBA").getpixel((2, 2))[3] == 0
+
+
+# --------------------------------------------------------------------------
+# 형태 — 머리/몸통 구조, 부품 명암, 가려짐
+# --------------------------------------------------------------------------
+
+def _tone_count(img: Image.Image) -> int:
+    """보이는 픽셀의 색 종류 수 (알파 있는 부분만)."""
+    arr = np.array(img.convert("RGBA"))
+    body = arr[arr[:, :, 3] > 200][:, :3]
+    return len(np.unique(body, axis=0))
+
+
+def test_parts_get_their_own_shade():
+    """귀·팔다리가 몸통과 구분되려면 몸 색 말고 다른 톤이 있어야 한다."""
+    char = sketchgen.make_character(3, animal="bear")
+    img = sketchgen.render_character("안녕", size=300, seed=1, character=char)
+
+    arr = np.array(img.convert("RGBA"))
+    visible = arr[arr[:, :, 3] > 200][:, :3]
+    values, counts = np.unique(visible, axis=0, return_counts=True)
+
+    body_tone = values[counts.argmax()]
+    body_lum = float(body_tone @ np.array([0.2126, 0.7152, 0.0722]))
+    lums = values @ np.array([0.2126, 0.7152, 0.0722])
+
+    # 몸통보다 어둡되 잉크(거의 검정)는 아닌 중간 톤이 실제로 존재해야 한다
+    mid = counts[(lums < body_lum - 5) & (lums > 90)].sum()
+    assert mid > visible.shape[0] * 0.02, "부품 명암이 보이지 않는다"
+
+
+@pytest.mark.parametrize("animal", ["bear", "cat", "dog", "rabbit"])
+def test_head_and_body_are_separated_by_a_waist(animal):
+    """머리와 몸통이 나뉘어야 동물로 읽힌다.
+
+    통짜 원 하나면 폭이 위에서 아래로 단조롭게 줄어든다. 머리와 몸통이
+    겹친 구조라면 그 사이에 잘록한 지점(목)이 생긴다.
+    """
+    char = sketchgen.make_character(3, animal=animal)
+    img = sketchgen.render_character("안녕", size=300, seed=1, character=char)
+    alpha = np.array(img.convert("RGBA"))[:, :, 3] > 128
+
+    rows = np.where(alpha.any(axis=1))[0]
+    top, height = rows.min(), rows.max() - rows.min()
+    widths = np.array([alpha[top + height * pct // 100].sum() for pct in range(10, 90)])
+
+    head_max = widths[:35].max()      # 머리
+    waist = widths[30:55].min()       # 목 언저리
+    body_max = widths[45:].max()      # 몸통(+팔)
+
+    assert waist < head_max * 0.95, f"{animal}: 머리와 몸통이 안 나뉜다"
+    assert waist < body_max * 0.95, f"{animal}: 머리와 몸통이 안 나뉜다"
+
+
+def test_shape_is_not_wildly_distorted():
+    """왜곡을 줄였으므로 실루엣이 대체로 둥글어야 한다 (가로세로비가 극단이 아님)."""
+    for animal in ("bear", "cat", "dog"):
+        char = sketchgen.make_character(3, animal=animal)
+        img = sketchgen.render_character("안녕", size=300, seed=2, character=char)
+        alpha = np.array(img.convert("RGBA"))[:, :, 3] > 128
+        rows = np.where(alpha.any(axis=1))[0]
+        cols = np.where(alpha.any(axis=0))[0]
+        h = rows.max() - rows.min()
+        w = cols.max() - cols.min()
+        assert 0.45 < w / h < 2.2, f"{animal}: 실루엣이 지나치게 일그러졌다 ({w}x{h})"
