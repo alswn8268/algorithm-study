@@ -31,6 +31,7 @@ def generate_one(
     raw_size: int = 512,
     target_size: int = 360,
     jitter: float = 1.5,
+    fit: str = "content",
 ) -> EmoticonResult:
     prompt_result = prompts.build_prompt(keyword, style=style)
 
@@ -55,7 +56,7 @@ def generate_one(
     no_bg = postprocess.remove_background(raw_image)
     # 리사이즈 전 원본 해상도에서 흔들어야 축소 과정에서 자연스럽게 뭉개진다.
     jittered = postprocess.add_hand_jitter(no_bg, strength=jitter, seed=seed)
-    final_image = postprocess.resize_canvas(jittered, target=target_size)
+    final_image = postprocess.resize_canvas(jittered, target=target_size, fit=fit)
 
     quality_report = quality.run_quality_checks(final_image)
     spec_result = kakao_spec.validate_in_memory(final_image, profile=profile)
@@ -85,13 +86,15 @@ def generate_set(
     profile: str = "proposal_static",
     base_seed: int | None = None,
     jitter: float = 1.5,
+    fit: str = "content",
 ) -> list[EmoticonResult]:
     output_dir = Path(output_dir)
     results = []
     for i, keyword in enumerate(keywords):
         seed = None if base_seed is None else base_seed + i
         result = generate_one(
-            keyword, backend, output_dir, style=style, profile=profile, seed=seed, jitter=jitter
+            keyword, backend, output_dir, style=style, profile=profile,
+            seed=seed, jitter=jitter, fit=fit,
         )
         results.append(result)
 

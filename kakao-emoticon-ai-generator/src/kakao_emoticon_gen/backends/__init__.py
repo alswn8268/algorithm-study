@@ -12,6 +12,10 @@ def get_backend(name: str, **kwargs) -> ImageGenerator:
         from .mock import MockGenerator
 
         return MockGenerator(**kwargs)
+    if name == "sketch":
+        from .sketch import SketchGenerator
+
+        return SketchGenerator(**kwargs)
     if name == "dalle":
         from .dalle import DalleGenerator
 
@@ -20,4 +24,6 @@ def get_backend(name: str, **kwargs) -> ImageGenerator:
         from .stable_diffusion import StableDiffusionGenerator
 
         return StableDiffusionGenerator(**kwargs)
-    raise ValueError(f"unknown backend '{name}'. choose from: mock, dalle, stable_diffusion")
+    raise ValueError(
+        f"unknown backend '{name}'. choose from: mock, sketch, dalle, stable_diffusion"
+    )

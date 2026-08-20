@@ -26,7 +26,9 @@ def _cmd_generate(args: argparse.Namespace) -> int:
 
     backend_name = args.backend or settings.backend
     backend_kwargs = {}
-    if backend_name == "dalle":
+    if backend_name == "sketch":
+        backend_kwargs["character_seed"] = args.character_seed
+    elif backend_name == "dalle":
         backend_kwargs["api_key"] = args.api_key or settings.openai_api_key
     elif backend_name == "stable_diffusion":
         backend_kwargs["model_id"] = args.model or settings.sd_model_id
@@ -42,6 +44,7 @@ def _cmd_generate(args: argparse.Namespace) -> int:
         profile=args.profile or settings.profile,
         base_seed=args.seed,
         jitter=args.jitter,
+        fit=args.fit,
     )
 
     approved = sum(1 for r in results if r.status == "approved")
@@ -111,6 +114,43 @@ SUBMISSION_CHECKLIST: list[str] = [
 ]
 
 
+def _cmd_samples(args: argparse.Namespace) -> int:
+    """절차적 렌더러로 캐릭터 후보 / 표정 세트를 한 장에 뽑아 눈으로 비교한다."""
+    from . import sketchgen
+
+    out = Path(args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    # 다크모드 가독성은 눈으로 확인하는 게 가장 확실하다
+    background = (28, 28, 30, 255) if args.dark else (255, 255, 255, 255)
+
+    if args.mode == "lineup":
+        sheet, characters = sketchgen.render_lineup(
+            count=args.count, keyword=args.keyword, cell=args.cell,
+            cols=args.cols, base_seed=args.seed, background=background,
+        )
+        print(f"캐릭터 후보 {len(characters)}종 (--character-seed 값으로 그대로 재현 가능):")
+        for i, c in enumerate(characters):
+            print(f"  seed={args.seed + i:<4d} 머리={c.tuft:<8s} 색={c.color[:3]}")
+    else:
+        keywords = (
+            [k.strip() for k in args.emotions.split(",") if k.strip()]
+            if args.emotions else prompts.RECOMMENDED_EMOTION_SET
+        )
+        character = (
+            sketchgen.make_character(args.character_seed)
+            if args.character_seed is not None else None
+        )
+        sheet = sketchgen.render_contact_sheet(
+            keywords, cell=args.cell, cols=args.cols, seed=args.seed,
+            character=character, background=background,
+        )
+        print(f"표정 {len(keywords)}컷을 한 캐릭터로 렌더링했습니다.")
+
+    sheet.convert("RGB").save(out)
+    print(f"→ {out}")
+    return 0
+
+
 def _cmd_checklist(_: argparse.Namespace) -> int:
     print("제출 전 수동 검토 체크리스트:\n")
     for item in SUBMISSION_CHECKLIST:
@@ -128,7 +168,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_gen = sub.add_parser("generate", help="키워드로부터 이모티콘 이미지 생성")
     p_gen.add_argument("--emotions", required=True, help="쉼표로 구분한 감정/키워드 목록 (예: '기쁨,슬픔,화남')")
-    p_gen.add_argument("--backend", choices=["mock", "dalle", "stable_diffusion"], default=None)
+    p_gen.add_argument(
+        "--backend", choices=["mock", "sketch", "dalle", "stable_diffusion"], default=None
+    )
     p_gen.add_argument("--style", choices=list(prompts.STYLE_PRESETS), default=prompts.DEFAULT_STYLE)
     p_gen.add_argument("--profile", choices=list(kakao_spec.SUBMISSION_PROFILES), default=None)
     p_gen.add_argument("--out", type=Path, default=None)
@@ -138,6 +180,17 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=1.5,
         help="AI 티 제거용 손떨림 강도(픽셀). 0이면 끕니다. 트레이싱의 대체재는 아닙니다.",
+    )
+    p_gen.add_argument(
+        "--fit",
+        choices=["content", "canvas"],
+        default="content",
+        help="canvas: 원본 프레이밍 유지(세트 내 캐릭터 크기 일정). "
+             "content: 컷마다 내용물에 꽉 차게 확대(기본)",
+    )
+    p_gen.add_argument(
+        "--character-seed", type=int, default=None,
+        help="sketch 백엔드용 캐릭터 디자인 seed. 세트 내내 같은 값을 쓰세요",
     )
     p_gen.add_argument("--api-key", default=None, help="dalle 백엔드용 OpenAI API 키")
     p_gen.add_argument("--model", default=None, help="stable_diffusion 백엔드용 모델 ID")
@@ -151,6 +204,22 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_list = sub.add_parser("list-emotions", help="참고용 감정 세트/스타일 프리셋 목록 출력")
     p_list.set_defaults(func=_cmd_list_emotions)
+
+    p_samp = sub.add_parser("samples", help="절차적 렌더러로 캐릭터/표정 비교 시트 생성")
+    p_samp.add_argument(
+        "--mode", choices=["lineup", "expressions"], default="lineup",
+        help="lineup: 서로 다른 캐릭터 후보 비교 / expressions: 한 캐릭터의 표정 세트",
+    )
+    p_samp.add_argument("--out", default="output/samples.png")
+    p_samp.add_argument("--count", type=int, default=8, help="lineup 모드에서 뽑을 후보 수")
+    p_samp.add_argument("--keyword", default="안녕", help="lineup 모드에서 쓸 공통 표정")
+    p_samp.add_argument("--emotions", default=None, help="expressions 모드의 감정 목록 (기본: 32컷 세트)")
+    p_samp.add_argument("--character-seed", type=int, default=None, help="expressions 모드의 캐릭터")
+    p_samp.add_argument("--cell", type=int, default=300)
+    p_samp.add_argument("--cols", type=int, default=4)
+    p_samp.add_argument("--seed", type=int, default=0)
+    p_samp.add_argument("--dark", action="store_true", help="다크모드 배경에 올려 가독성 확인")
+    p_samp.set_defaults(func=_cmd_samples)
 
     p_check = sub.add_parser("checklist", help="제출 전 수동 검토 체크리스트 출력")
     p_check.set_defaults(func=_cmd_checklist)

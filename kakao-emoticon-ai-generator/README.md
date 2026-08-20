@@ -19,7 +19,8 @@
 
 | 상황 | 추천 백엔드 | 필요한 것 |
 | --- | --- | --- |
-| GPU 없음 / 우선 파이프라인만 테스트 | `mock` | 없음 (Pillow만 있으면 즉시 동작, 플레이스홀더 이미지 생성) |
+| GPU/API 없이 **실제 발그림 스타일 그림**이 필요 | `sketch` | 없음 (Pillow만으로 절차적 렌더링) |
+| 파이프라인 배관만 확인 | `mock` | 없음 (단순 플레이스홀더) |
 | GPU 없음 / API 비용 지불 가능 | `dalle` (OpenAI Images API) | `OPENAI_API_KEY`, 인터넷 |
 | GPU 있음(8GB+ VRAM) / 무료로 대량 생성 | `stable_diffusion` (로컬 diffusers) | `torch`, `diffusers`, GPU |
 
@@ -56,12 +57,14 @@ GIF(움직이는) 이모티콘은 이 저장소에서 프레임 단위 정지 �
 kakao-emoticon-ai-generator/
 ├── docs/STYLE_GUIDE.md     # 볼펜 발그림 화풍 고정 규칙 + 제출 체크리스트
 ├── src/kakao_emoticon_gen/
+│   ├── sketchgen.py        # 발그림 캐릭터 절차적 렌더러 (AI 불필요)
 │   ├── config.py           # 환경변수(.env) 로딩
 │   ├── prompts.py          # 감정 키워드 → 카카오 이모티콘 스타일 프롬프트 (32컷 세트)
 │   ├── copyright_guard.py  # 저작권/브랜드명 + 참고 작가명 금칙어 필터
 │   ├── backends/
 │   │   ├── base.py             # ImageGenerator 추상 인터페이스
-│   │   ├── mock.py             # GPU/API 없이 테스트용 플레이스홀더 생성기
+│   │   ├── sketch.py           # 절차적 발그림 렌더러 어댑터
+│   │   ├── mock.py             # 파이프라인 배관 확인용 플레이스홀더
 │   │   ├── stable_diffusion.py # 로컬 Stable Diffusion (diffusers)
 │   │   └── dalle.py            # OpenAI Images API
 │   ├── postprocess.py      # 배경 제거, 손떨림 지터(AI 티 제거), 360x360 리사이즈, GIF
@@ -128,10 +131,21 @@ cp .env.example .env   # 필요한 값 채우기
 ## 3. 사용법
 
 ```bash
-# 1) 백엔드 없이 파이프라인부터 검증 (플레이스홀더 이미지)
+# 0) 캐릭터 후보 8종을 같은 표정으로 뽑아 디자인 비교
+python -m kakao_emoticon_gen.cli samples --mode lineup --count 8 --out output/lineup.png
+
+# 0-1) 마음에 드는 후보의 seed로 32컷 표정 세트 전체를 미리보기
+python -m kakao_emoticon_gen.cli samples --mode expressions \
+    --character-seed 5 --cols 8 --cell 200 --out output/set.png
+
+# 0-2) 다크모드 배경에서 묻히지 않는지 눈으로 확인
+python -m kakao_emoticon_gen.cli samples --mode expressions \
+    --character-seed 5 --dark --out output/set_dark.png
+
+# 1) GPU/API 없이 실제 발그림 그림으로 32컷 생성 (세트 크기 일정하게)
 python -m kakao_emoticon_gen.cli generate \
     --emotions "기쁨,슬픔,화남,사랑해,화이팅" \
-    --backend mock \
+    --backend sketch --character-seed 5 --fit canvas --seed 11 --jitter 0.8 \
     --out output/
 
 # 2) OpenAI DALL·E로 실제 생성
@@ -170,6 +184,8 @@ python -m kakao_emoticon_gen.cli list-emotions
 | `--style` | 스타일 프리셋 (기본 `pen_doodle`) |
 | `--seed` | 컷마다 `seed + i`로 파생돼 톤이 안정됩니다. 재현에도 필요 |
 | `--jitter` | AI 티 제거용 손떨림 강도(픽셀, 기본 1.5). `0`이면 끕니다 |
+| `--fit` | `canvas`는 원본 프레이밍을 유지해 **세트 내 캐릭터 크기를 일정하게** 합니다. 기본값 `content`는 컷마다 내용물에 꽉 차게 확대하므로, 팔을 벌린 컷의 몸통이 작아져 32컷 통일감이 깨집니다 |
+| `--character-seed` | `sketch` 백엔드의 캐릭터 디자인. **세트 내내 같은 값**을 써야 같은 캐릭터가 됩니다 |
 
 결과물:
 

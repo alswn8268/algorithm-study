@@ -85,13 +85,35 @@ def add_hand_jitter(
     return Image.fromarray(arr[src_y, src_x], mode="RGBA")
 
 
-def resize_canvas(image: Image.Image, target: int = 360, padding_ratio: float = 0.06) -> Image.Image:
+def resize_canvas(
+    image: Image.Image,
+    target: int = 360,
+    padding_ratio: float = 0.06,
+    fit: str = "content",
+) -> Image.Image:
     """이미지를 비율을 유지한 채 정사각형 `target x target` 캔버스에 맞춘다.
 
     카카오 심사 시 캐릭터가 캔버스 가장자리에 딱 붙어있으면 감점 요인이
     될 수 있어, 기본적으로 여백(`padding_ratio`)을 둔다.
+
+    `fit`:
+      - "content": 컷마다 내용물 경계에 맞춰 꽉 차게 확대한다. 여백이 제각각인
+        AI 생성 이미지를 정렬할 때 쓴다.
+      - "canvas" : 원본 프레이밍을 그대로 두고 전체를 축소만 한다.
+        **세트 전체의 캐릭터 크기를 일정하게 유지해야 할 때 반드시 이쪽을 쓴다.**
+        "content"는 팔을 벌린 컷의 몸통을 작게 만들어 32컷 통일감을 깨뜨린다.
     """
+    if fit not in ("content", "canvas"):
+        raise ValueError(f"unknown fit '{fit}'. use 'content' or 'canvas'")
+
     rgba = image.convert("RGBA")
+
+    if fit == "canvas":
+        side = max(rgba.size)
+        square = Image.new("RGBA", (side, side), (0, 0, 0, 0))
+        square.paste(rgba, ((side - rgba.width) // 2, (side - rgba.height) // 2), rgba)
+        return square.resize((target, target), Image.LANCZOS)
+
     content_box = rgba.getbbox()
     cropped = rgba.crop(content_box) if content_box else rgba
 

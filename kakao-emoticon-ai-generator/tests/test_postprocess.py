@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 from PIL import Image, ImageDraw
 
 from kakao_emoticon_gen import postprocess
@@ -58,6 +59,37 @@ def test_add_hand_jitter_zero_strength_is_a_noop():
     img = _sample_image_with_white_bg(size=100)
     result = postprocess.add_hand_jitter(img, strength=0)
     assert np.array_equal(np.array(result), np.array(img.convert("RGBA")))
+
+
+def test_resize_canvas_fit_canvas_keeps_scale_consistent():
+    """세트 통일감의 핵심 — fit='canvas'는 내용물 크기와 무관하게 같은 배율을 쓴다."""
+    def framed(radius):
+        img = Image.new("RGBA", (400, 400), (0, 0, 0, 0))
+        d = ImageDraw.Draw(img)
+        d.ellipse([200 - radius, 200 - radius, 200 + radius, 200 + radius], fill=(255, 0, 0, 255))
+        return img
+
+    small = postprocess.resize_canvas(framed(40), target=360, fit="canvas")
+    large = postprocess.resize_canvas(framed(90), target=360, fit="canvas")
+
+    def opaque_width(img):
+        alpha = np.array(img)[:, :, 3]
+        cols = np.where(alpha.max(axis=0) > 0)[0]
+        return cols.max() - cols.min()
+
+    # 원본에서 크기가 다르면 결과에서도 그대로 달라야 한다
+    assert opaque_width(large) > opaque_width(small) * 1.8
+
+    # 반면 fit="content"는 둘 다 캔버스에 꽉 채워 크기 차이를 지워버린다
+    c_small = postprocess.resize_canvas(framed(40), target=360, fit="content")
+    c_large = postprocess.resize_canvas(framed(90), target=360, fit="content")
+    assert abs(opaque_width(c_small) - opaque_width(c_large)) < 10
+
+
+def test_resize_canvas_rejects_unknown_fit():
+    img = _sample_image_with_white_bg(size=100)
+    with pytest.raises(ValueError):
+        postprocess.resize_canvas(img, target=360, fit="stretch")
 
 
 def test_save_png_creates_file(tmp_path):
