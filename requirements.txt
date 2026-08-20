@@ -1,14 +1,15 @@
+# 이 파일은 참고용입니다. 권장 설치 방법은 `pip install -e .` 입니다
+# (pyproject.toml이 의존성과 kakao-emoticon-gen 명령을 함께 등록합니다).
+
 # 필수 (모든 백엔드 공통)
 Pillow>=10.0.0
 numpy>=1.24.0
 
-# 선택 사항 - 필요한 백엔드에 맞춰 설치하세요.
+# 선택 사항 — pip install -e ".[dalle]" / ".[sd]" / ".[rembg]" / ".[dev]" 로도 설치됩니다.
 # openai>=1.0.0            # --backend dalle
 # torch>=2.0.0              # --backend stable_diffusion
 # diffusers>=0.27.0         # --backend stable_diffusion
 # accelerate>=0.27.0        # --backend stable_diffusion (GPU 가속)
 # rembg>=2.0.0               # 고품질 배경 제거 (없으면 간이 알고리즘 사용)
 # python-dotenv>=1.0.0      # .env 자동 로딩 (없어도 config.py가 직접 파싱)
-
-# 개발/테스트
-# pytest>=7.0.0
+# pytest>=7.0.0             # 테스트
