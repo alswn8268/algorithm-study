@@ -1,3 +1,4 @@
+import numpy as np
 from PIL import Image, ImageDraw
 
 from kakao_emoticon_gen import postprocess
@@ -31,6 +32,32 @@ def test_resize_canvas_handles_fully_transparent_image():
     img = Image.new("RGBA", (100, 100), (0, 0, 0, 0))
     resized = postprocess.resize_canvas(img, target=360)
     assert resized.size == (360, 360)
+
+
+def test_add_hand_jitter_preserves_size_and_mode():
+    img = _sample_image_with_white_bg(size=200)
+    jittered = postprocess.add_hand_jitter(img, strength=2.0, seed=1)
+    assert jittered.size == img.size
+    assert jittered.mode == "RGBA"
+
+
+def test_add_hand_jitter_actually_changes_pixels():
+    img = _sample_image_with_white_bg(size=200)
+    jittered = postprocess.add_hand_jitter(img, strength=3.0, seed=1)
+    assert not np.array_equal(np.array(jittered), np.array(img.convert("RGBA")))
+
+
+def test_add_hand_jitter_is_deterministic_with_seed():
+    img = _sample_image_with_white_bg(size=200)
+    a = postprocess.add_hand_jitter(img, strength=2.0, seed=7)
+    b = postprocess.add_hand_jitter(img, strength=2.0, seed=7)
+    assert np.array_equal(np.array(a), np.array(b))
+
+
+def test_add_hand_jitter_zero_strength_is_a_noop():
+    img = _sample_image_with_white_bg(size=100)
+    result = postprocess.add_hand_jitter(img, strength=0)
+    assert np.array_equal(np.array(result), np.array(img.convert("RGBA")))
 
 
 def test_save_png_creates_file(tmp_path):

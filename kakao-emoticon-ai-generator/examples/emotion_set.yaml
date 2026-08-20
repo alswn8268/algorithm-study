@@ -1,13 +1,18 @@
-# 참고용 감정/문구 예시 세트입니다. 카카오의 공식 필수 목록이 아니며,
-# 실제 캐릭터 컨셉에 맞게 자유롭게 수정해서 --emotions 인자로 넘기세요.
+# 멈춰있는 이모티콘 제안 기준인 32컷에 맞춘 참고용 감정/문구 세트입니다.
+# 카카오의 공식 필수 목록이 아니며, 실제 캐릭터 컨셉에 맞게 자유롭게
+# 수정해서 --emotions 인자로 넘기세요.
 #
-# 사용 예:
+# 모두 "텍스트 없이 봐도 뜻이 통하는지"(논버벌 테스트)를 통과하도록
+# 몸짓만으로 표현 가능한 것들로 골랐습니다.
+#
+# 사용 예 (코드에 내장된 세트를 그대로 쓰는 쪽이 더 간단합니다):
 #   python -m kakao_emoticon_gen.cli generate \
-#       --emotions "$(python -c "import yaml;print(','.join(yaml.safe_load(open('examples/emotion_set.yaml'))['emotions']))")" \
+#       --emotions "$(python -c 'from kakao_emoticon_gen import prompts; print(",".join(prompts.RECOMMENDED_EMOTION_SET))')" \
 #       --backend mock
 
 emotions:
   - 안녕
+  - 반가워
   - 기쁨
   - 슬픔
   - 화남
@@ -31,3 +36,10 @@ emotions:
   - 지침
   - 설렘
   - 만족
+  - 거절
+  - 수긍
+  - 눈치보기
+  - 신남
+  - 멍때림
+  - 삐짐
+  - 잘자

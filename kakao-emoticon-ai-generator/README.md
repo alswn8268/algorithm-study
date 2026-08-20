@@ -23,11 +23,30 @@
 | GPU 없음 / API 비용 지불 가능 | `dalle` (OpenAI Images API) | `OPENAI_API_KEY`, 인터넷 |
 | GPU 있음(8GB+ VRAM) / 무료로 대량 생성 | `stable_diffusion` (로컬 diffusers) | `torch`, `diffusers`, GPU |
 
-이모티콘 스타일(귀여운 캐릭터형 / 텍스트형 / 움직이는 GIF형)은
-`src/kakao_emoticon_gen/prompts.py`의 `STYLE_PRESETS`에서 고릅니다.
-기본값은 **귀여운 캐릭터형(정지 이미지)** 입니다. GIF(움직이는) 이모티콘은
-이 저장소에서 프레임 단위 정지 이미지 생성까지만 자동화하며, 프레임 보간·
-GIF 인코딩은 `postprocess.py`의 `frames_to_gif`로 별도 지원합니다.
+이모티콘 스타일은 `src/kakao_emoticon_gen/prompts.py`의 `STYLE_PRESETS`에서 고릅니다.
+기본값은 **`pen_doodle` (볼펜 발그림)** 입니다.
+
+| 프리셋 | 설명 |
+| --- | --- |
+| `pen_doodle` **(기본값)** | 얇고 떨리는 볼펜 선 · 검정 짝눈 · 좌우 비대칭 · 선 밖으로 삐져나간 채색 |
+| `text_based` | 하단에 손글씨 문구를 얹을 빈 공간을 확보 (한글은 AI가 아닌 후처리에서) |
+| `animated_frame` | 움직이는 GIF용 단일 프레임 |
+| `cute_character` | 발그림 화풍을 쓰지 않을 때의 깔끔한 대안 |
+
+> 📖 **볼펜 발그림 화풍의 고정 규칙(눈·선·비율·채색), 캐릭터 일관성 유지법,
+> AI 티 제거 후처리, 제출 전 체크리스트는 [docs/STYLE_GUIDE.md](docs/STYLE_GUIDE.md)에
+> 정리돼 있습니다. 32컷 작업을 시작하기 전에 먼저 읽어주세요.**
+
+GIF(움직이는) 이모티콘은 이 저장소에서 프레임 단위 정지 이미지 생성까지만
+자동화하며, 프레임 보간·GIF 인코딩은 `postprocess.py`의 `frames_to_gif`로
+별도 지원합니다.
+
+### ⚠️ 한글 텍스트는 AI에 시키지 마세요
+
+이미지 생성 AI는 한글을 거의 항상 깨뜨립니다. **그림만 뽑고**, 텍스트는
+프로크리에이트/포토샵/클립스튜디오에서 손글씨 폰트로 직접 얹으세요
+(**흰색 아웃라인 필수** — 다크모드 대응). 모든 프리셋의 네거티브 프롬프트가
+`korean text`, `hangul`, `letters`를 차단하도록 구성돼 있습니다.
 
 ---
 
@@ -35,18 +54,19 @@ GIF 인코딩은 `postprocess.py`의 `frames_to_gif`로 별도 지원합니다.
 
 ```
 kakao-emoticon-ai-generator/
+├── docs/STYLE_GUIDE.md     # 볼펜 발그림 화풍 고정 규칙 + 제출 체크리스트
 ├── src/kakao_emoticon_gen/
 │   ├── config.py           # 환경변수(.env) 로딩
-│   ├── prompts.py          # 감정 키워드 → 카카오 이모티콘 스타일 프롬프트
-│   ├── copyright_guard.py  # 저작권/브랜드명 금칙어 필터 + 네거티브 프롬프트 강제
+│   ├── prompts.py          # 감정 키워드 → 카카오 이모티콘 스타일 프롬프트 (32컷 세트)
+│   ├── copyright_guard.py  # 저작권/브랜드명 + 참고 작가명 금칙어 필터
 │   ├── backends/
 │   │   ├── base.py             # ImageGenerator 추상 인터페이스
 │   │   ├── mock.py             # GPU/API 없이 테스트용 플레이스홀더 생성기
 │   │   ├── stable_diffusion.py # 로컬 Stable Diffusion (diffusers)
 │   │   └── dalle.py            # OpenAI Images API
-│   ├── postprocess.py      # 배경 제거, 360x360 리사이즈, 투명 PNG 저장, GIF 인코딩
-│   ├── quality.py          # 품질 필터 (블러/빈 이미지/투명도 비율 검사)
-│   ├── kakao_spec.py       # 카카오 제출 규격 검증 (PNG/360x360/투명배경/용량)
+│   ├── postprocess.py      # 배경 제거, 손떨림 지터(AI 티 제거), 360x360 리사이즈, GIF
+│   ├── quality.py          # 품질 필터 (블러/빈 이미지/투명도/다크모드 가독성)
+│   ├── kakao_spec.py       # 제출 규격 검증 (PNG/360x360/투명배경/용량/32컷)
 │   ├── pipeline.py         # 전체 오케스트레이션
 │   └── cli.py               # CLI 진입점
 ├── tests/                  # pytest 유닛 테스트 (mock 백엔드만 사용, GPU/API 불필요)
@@ -71,16 +91,19 @@ kakao-emoticon-ai-generator/
 [backends/*]         이미지 생성 (mock / dalle / stable_diffusion)
    │
    ▼
-[postprocess.py]     배경 제거 → 정사각 캔버스 패딩 → 360x360 리사이즈 → RGBA PNG
+[postprocess.py]     배경 제거 → 손떨림 지터(AI 티 제거) → 정사각 패딩
+                     → 360x360 리사이즈 → RGBA PNG
    │
    ▼
-[quality.py]         품질 필터 (빈 이미지, 과도한 블러, 비정상 투명도 비율)
+[quality.py]         품질 필터 (빈 이미지, 블러, 투명도 비율, 다크모드 가독성)
    │              ├─ 실패 → output/needs_review/ (사람 검수 대기)
    │              └─ 통과
    ▼
 [kakao_spec.py]      카카오 제출 규격 검증 (형식/해상도/투명배경/파일 용량)
    │              ├─ 실패 → output/needs_review/
    │              └─ 통과 → output/approved/ + manifest.json 기록
+   ▼
+   사람이 직접 검수 (`cli.py checklist` — 화풍 통일감·실루엣·논버벌 테스트)
 ```
 
 ---
@@ -125,15 +148,38 @@ python -m kakao_emoticon_gen.cli generate \
     --model runwayml/stable-diffusion-v1-5 \
     --out output/
 
-# 이미 생성된 이미지가 카카오 규격에 맞는지만 검증
+# 4) 32컷 전체 세트를 한 번에 (참고 감정 세트 그대로 사용)
+python -m kakao_emoticon_gen.cli generate \
+    --emotions "$(python -c 'from kakao_emoticon_gen import prompts; print(",".join(prompts.RECOMMENDED_EMOTION_SET))')" \
+    --backend mock --seed 100 --out output/
+
+# 규격 + 32컷 장수까지 세트 단위로 검증
 python -m kakao_emoticon_gen.cli validate --path output/approved
+
+# 제출 전 수동 검토 체크리스트 출력
+python -m kakao_emoticon_gen.cli checklist
+
+# 참고 감정 세트(32컷)와 스타일 프리셋 목록 확인
+python -m kakao_emoticon_gen.cli list-emotions
 ```
+
+주요 옵션:
+
+| 옵션 | 설명 |
+| --- | --- |
+| `--style` | 스타일 프리셋 (기본 `pen_doodle`) |
+| `--seed` | 컷마다 `seed + i`로 파생돼 톤이 안정됩니다. 재현에도 필요 |
+| `--jitter` | AI 티 제거용 손떨림 강도(픽셀, 기본 1.5). `0`이면 끕니다 |
 
 결과물:
 
 - `output/approved/*.png` — 카카오 제출 규격(PNG, 360×360, 투명 배경) 통과 + 품질 필터 통과
 - `output/needs_review/*.png` — 규격 또는 품질 필터에 걸려 **사람이 직접 확인**해야 하는 이미지
 - `output/manifest.json` — 각 이미지의 프롬프트, 검증 결과, 통과 여부 기록
+
+> `approved`는 **규격 통과**를 뜻할 뿐 "제출해도 좋다"는 뜻이 아닙니다.
+> 화풍 통일감·실루엣 유사성·논버벌 전달력은 자동 검사가 판단할 수 없으므로,
+> `checklist`를 돌려 반드시 사람이 눈으로 확인하세요.
 
 ---
 
@@ -149,7 +195,8 @@ python -m kakao_emoticon_gen.cli validate --path output/approved
 | 해상도 | 360 × 360 px |
 | 배경 | 투명 (알파 채널 존재 + 실제로 투명 픽셀 포함) |
 | 색상 모드 | RGBA |
-| 파일 용량 | 150KB 이하 (기본값, `--max-kb`로 조정 가능) |
+| 파일 용량 | 150KB 이하 |
+| 세트 장수 | 32컷 (디렉터리 단위 `validate` 시 검사) |
 
 > 카카오의 정식 제출 규격(시안 3종, 정식 24종+상세이미지 등)은 카카오
 > 이모티콘 스튜디오 공지에 따라 바뀔 수 있으므로, **제출 직전 반드시
@@ -163,10 +210,14 @@ python -m kakao_emoticon_gen.cli validate --path output/approved
 
 1. `copyright_guard.py`의 `BLOCKLIST`에 유명 캐릭터/브랜드명을 등록해두면,
    프롬프트에 해당 단어가 포함될 경우 **생성 전에 차단**하고 경고를 띄웁니다.
-2. 모든 생성 요청에 `"original character, not based on any existing
+2. `STYLE_REFERENCE_BLOCKLIST`는 **화풍 참고 대상의 작가/캐릭터 이름**을
+   따로 차단합니다. 이름을 프롬프트에 넣으면 화풍만이 아니라 실루엣까지
+   따라가 심사 탈락 사유가 되기 때문입니다. **화풍은 이름이 아니라
+   서술(선·눈·비율·채색)로만 재현**하세요 — `pen_doodle` 프리셋이 그 방식입니다.
+3. 모든 생성 요청에 `"original character, not based on any existing
    copyrighted character or brand"` 문구와 네거티브 프롬프트가 자동으로
    추가됩니다.
-3. 그럼에도 AI 모델은 학습 데이터의 영향으로 기존 캐릭터와 유사한 결과를
+4. 그럼에도 AI 모델은 학습 데이터의 영향으로 기존 캐릭터와 유사한 결과를
    낼 수 있습니다. **`needs_review` 검수 단계에서 사람이 반드시 육안으로
    기존 IP와의 유사성을 확인**하세요. 이 저장소는 이미지 유사도 기반의
    저작권 자동 판별 기능은 제공하지 않습니다 (오탐/미탐 위험이 크기 때문).
@@ -183,6 +234,12 @@ python -m kakao_emoticon_gen.cli validate --path output/approved
 - `check_blur`: 에지 검출 기반 블러 정도 추정
 - `check_transparency_ratio`: 배경 제거가 과도하거나(캐릭터까지 날아감)
   전혀 되지 않은 경우 감지
+- `check_dark_mode_legibility`: 검은 볼펜 선만 있고 밝은 채색이 거의 없어
+  **다크모드 채팅 배경에서 형체가 묻히는** 컷을 감지
+
+> ⚠️ 이 필터들은 **화풍의 완성도를 판단하지 못합니다.** "선이 너무 깔끔한지",
+> "32컷의 낙서 텐션이 일정한지"는 사람만 판별할 수 있습니다
+> (→ [docs/STYLE_GUIDE.md](docs/STYLE_GUIDE.md) 체크리스트).
 
 ---
 

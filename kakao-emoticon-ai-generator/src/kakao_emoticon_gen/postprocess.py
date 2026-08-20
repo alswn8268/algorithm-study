@@ -38,6 +38,53 @@ def _colorkey_remove_background(image: Image.Image, tolerance: int = 24) -> Imag
     return Image.fromarray(out.astype(np.uint8), mode="RGBA")
 
 
+def add_hand_jitter(
+    image: Image.Image,
+    strength: float = 1.5,
+    cell: int = 32,
+    seed: int | None = None,
+) -> Image.Image:
+    """저주파 랜덤 변위장을 적용해 선을 미세하게 흔들고 좌우 대칭을 깬다.
+
+    AI가 뽑은 그림은 선 굵기가 균일하고 좌우가 지나치게 대칭이라 "AI 티"가
+    난다. 이 함수는 이미지 전체를 부드럽게 일렁이게 만들어 그 균일함을
+    깨뜨린다.
+
+    ⚠️ 이것은 보조 수단일 뿐 트레이싱(직접 따라 그리기)의 대체재가 아니다.
+    발그림 화풍의 본질인 "겹쳐 그은 획", "끝에서 안 만나는 선"은 픽셀 변형으로
+    만들어낼 수 없다. 자세한 내용은 docs/STYLE_GUIDE.md 참고.
+
+    Args:
+        strength: 변위 크기(픽셀 표준편차). 0이면 원본을 그대로 반환한다.
+        cell: 변위장의 대략적인 셀 크기. 클수록 완만하게 일렁인다.
+        seed: 재현 가능한 결과를 원할 때 지정한다.
+    """
+    if strength <= 0:
+        return image.convert("RGBA")
+
+    rgba = image.convert("RGBA")
+    arr = np.array(rgba)
+    h, w = arr.shape[:2]
+
+    rng = np.random.default_rng(seed)
+    coarse_h = max(2, h // max(1, cell))
+    coarse_w = max(2, w // max(1, cell))
+
+    def _displacement_field() -> np.ndarray:
+        coarse = rng.normal(0.0, strength, (coarse_h, coarse_w)).astype(np.float32)
+        smoothed = Image.fromarray(coarse, mode="F").resize((w, h), Image.BICUBIC)
+        return np.array(smoothed, dtype=np.float32)
+
+    dx = _displacement_field()
+    dy = _displacement_field()
+
+    yy, xx = np.meshgrid(np.arange(h), np.arange(w), indexing="ij")
+    src_x = np.clip(np.rint(xx + dx).astype(np.int64), 0, w - 1)
+    src_y = np.clip(np.rint(yy + dy).astype(np.int64), 0, h - 1)
+
+    return Image.fromarray(arr[src_y, src_x], mode="RGBA")
+
+
 def resize_canvas(image: Image.Image, target: int = 360, padding_ratio: float = 0.06) -> Image.Image:
     """이미지를 비율을 유지한 채 정사각형 `target x target` 캔버스에 맞춘다.
 

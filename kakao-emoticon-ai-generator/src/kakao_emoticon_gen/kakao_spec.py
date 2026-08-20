@@ -24,6 +24,7 @@ class SubmissionProfile:
     require_alpha: bool
     max_bytes: int
     description: str
+    expected_count: int | None = None  # 세트 단위 제출 장수 (없으면 검사 안 함)
 
 
 SUBMISSION_PROFILES: dict[str, SubmissionProfile] = {
@@ -35,6 +36,7 @@ SUBMISSION_PROFILES: dict[str, SubmissionProfile] = {
         require_alpha=True,
         max_bytes=150 * 1024,
         description="멈춰있는 이모티콘 제안(시안) 단계 기준",
+        expected_count=32,
     ),
     # 필요 시 아래처럼 프로필을 추가해 다른 규격(정식 등록, 큰 이모티콘 등)을
     # 지원할 수 있다. 실제 값은 반드시 공식 가이드로 재확인할 것.
@@ -46,6 +48,8 @@ SUBMISSION_PROFILES: dict[str, SubmissionProfile] = {
         require_alpha=True,
         max_bytes=2 * 1024 * 1024,
         description="움직이는 이모티콘 개별 프레임 기준 (GIF 합성 전)",
+        # 프레임은 제출 단위가 아니라 GIF 합성용 중간 산출물이라 장수를 세지 않는다.
+        expected_count=None,
     ),
 }
 
@@ -109,6 +113,38 @@ def validate_image(
             violations.append(SpecViolation("transparency", "image has no transparent background (alpha channel missing or fully opaque)"))
 
     return ValidationResult(profile=spec.name, violations=violations)
+
+
+@dataclass
+class SetValidationResult:
+    profile: str
+    file_results: dict[str, ValidationResult] = field(default_factory=dict)
+    count_violation: SpecViolation | None = None
+
+    @property
+    def is_valid(self) -> bool:
+        return self.count_violation is None and all(r.is_valid for r in self.file_results.values())
+
+
+def validate_set(
+    directory: str | Path,
+    profile: str | SubmissionProfile = "proposal_static",
+) -> SetValidationResult:
+    """디렉터리 전체를 제출 세트로 보고 각 파일 규격 + 총 장수를 검증한다."""
+    spec = SUBMISSION_PROFILES[profile] if isinstance(profile, str) else profile
+    directory = Path(directory)
+
+    files = sorted(directory.glob("*.png"))
+    result = SetValidationResult(profile=spec.name)
+    for f in files:
+        result.file_results[str(f)] = validate_image(f, profile=spec)
+
+    if spec.expected_count is not None and len(files) != spec.expected_count:
+        result.count_violation = SpecViolation(
+            "count",
+            f"expected {spec.expected_count} PNG files for a full submission set, found {len(files)}",
+        )
+    return result
 
 
 def validate_in_memory(

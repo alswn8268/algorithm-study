@@ -41,6 +41,7 @@ def _cmd_generate(args: argparse.Namespace) -> int:
         style=args.style,
         profile=args.profile or settings.profile,
         base_seed=args.seed,
+        jitter=args.jitter,
     )
 
     approved = sum(1 for r in results if r.status == "approved")
@@ -56,33 +57,68 @@ def _cmd_generate(args: argparse.Namespace) -> int:
     return 0
 
 
+def _print_file_result(path, result) -> None:
+    if result.is_valid:
+        print(f"✅ {path}")
+    else:
+        print(f"❌ {path}")
+        for v in result.violations:
+            print(f"    - [{v.field}] {v.message}")
+
+
 def _cmd_validate(args: argparse.Namespace) -> int:
     path = Path(args.path)
-    files = sorted(path.glob("*.png")) if path.is_dir() else [path]
-    if not files:
+
+    if not path.is_dir():
+        result = kakao_spec.validate_image(path, profile=args.profile)
+        _print_file_result(path, result)
+        return 0 if result.is_valid else 1
+
+    set_result = kakao_spec.validate_set(path, profile=args.profile)
+    if not set_result.file_results:
         print(f"no PNG files found under {path}", file=sys.stderr)
         return 1
 
-    all_valid = True
-    for f in files:
-        result = kakao_spec.validate_image(f, profile=args.profile)
-        if result.is_valid:
-            print(f"✅ {f}")
-        else:
-            all_valid = False
-            print(f"❌ {f}")
-            for v in result.violations:
-                print(f"    - [{v.field}] {v.message}")
-    return 0 if all_valid else 1
+    for file_path, result in set_result.file_results.items():
+        _print_file_result(file_path, result)
+
+    if set_result.count_violation is not None:
+        print(f"\n⚠️  [{set_result.count_violation.field}] {set_result.count_violation.message}")
+
+    return 0 if set_result.is_valid else 1
 
 
 def _cmd_list_emotions(_: argparse.Namespace) -> int:
-    print("참고용 감정/문구 예시 세트 (공식 요구사항 아님):")
-    for kw in prompts.RECOMMENDED_EMOTION_SET:
+    emotions = prompts.RECOMMENDED_EMOTION_SET
+    print(f"참고용 감정/문구 예시 세트 {len(emotions)}컷 (공식 요구사항 아님):")
+    for kw in emotions:
         print(f"  - {kw}")
     print("\n사용 가능한 스타일 프리셋:")
     for name in prompts.STYLE_PRESETS:
-        print(f"  - {name}")
+        marker = " (기본값)" if name == prompts.DEFAULT_STYLE else ""
+        print(f"  - {name}{marker}")
+    return 0
+
+
+SUBMISSION_CHECKLIST: list[str] = [
+    "논란이 없을 법한 최신 유행어나 오래가는 밈을 활용",
+    "32컷 모두 같은 사람이 대충 그린 듯한 통일감 (선의 얇기·떨림 정도·낙서 텐션이 일정)",
+    "선이 너무 깔끔한 컷이 없는지 (있다면 다시 빠르게 그려서 교체 — 오래 그릴수록 망함)",
+    "채색이 선 안에 얌전히 들어간 컷이 없는지 (일부러 삐져나가게)",
+    "참고 캐릭터와 실루엣이 겹치지 않는지",
+    "텍스트 없이 봐도 뜻이 통하는지 (논버벌 테스트)",
+    "손글씨 텍스트에 흰색 아웃라인 + 다크모드 가독성 확인",
+]
+
+
+def _cmd_checklist(_: argparse.Namespace) -> int:
+    print("제출 전 수동 검토 체크리스트:\n")
+    for item in SUBMISSION_CHECKLIST:
+        print(f"  [ ] {item}")
+    print(
+        "\n자동 검사는 규격(해상도/포맷/투명배경)과 최소 품질만 걸러냅니다."
+        "\n화풍 통일감과 실루엣 유사성은 반드시 사람이 눈으로 확인하세요."
+    )
     return 0
 
 
@@ -97,6 +133,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_gen.add_argument("--profile", choices=list(kakao_spec.SUBMISSION_PROFILES), default=None)
     p_gen.add_argument("--out", type=Path, default=None)
     p_gen.add_argument("--seed", type=int, default=None)
+    p_gen.add_argument(
+        "--jitter",
+        type=float,
+        default=1.5,
+        help="AI 티 제거용 손떨림 강도(픽셀). 0이면 끕니다. 트레이싱의 대체재는 아닙니다.",
+    )
     p_gen.add_argument("--api-key", default=None, help="dalle 백엔드용 OpenAI API 키")
     p_gen.add_argument("--model", default=None, help="stable_diffusion 백엔드용 모델 ID")
     p_gen.add_argument("--device", default=None, help="stable_diffusion 백엔드용 device (cuda/cpu/mps)")
@@ -109,6 +151,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_list = sub.add_parser("list-emotions", help="참고용 감정 세트/스타일 프리셋 목록 출력")
     p_list.set_defaults(func=_cmd_list_emotions)
+
+    p_check = sub.add_parser("checklist", help="제출 전 수동 검토 체크리스트 출력")
+    p_check.set_defaults(func=_cmd_checklist)
 
     return parser
 

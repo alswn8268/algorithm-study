@@ -9,6 +9,20 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
+# 화풍 참고 대상으로만 언급하고 프롬프트에는 절대 넣으면 안 되는 이름들.
+# 특정 작가/캐릭터의 이름을 프롬프트에 넣으면 결과물이 그 실루엣을 그대로
+# 따라가 심사 탈락 사유가 된다. 화풍의 문법(선·눈·비율·채색)은 STYLE_PRESETS의
+# 서술로만 재현하고, 고유명사는 여기서 차단한다.
+STYLE_REFERENCE_BLOCKLIST: list[str] = [
+    "내쓰만",
+    "가나디", "듀 가나디", "듀가나디",
+    "이걸누가사",
+    "어쩔꽁쥐", "꽁쥐",
+]
+# 참고: "그모"처럼 2글자 이하의 짧은 한글 이름은 여기에 넣지 않는다.
+# 비ASCII 항목은 단어 경계 없이 부분 문자열로 매칭하기 때문에 "그모습"
+# 같은 평범한 단어까지 오탐으로 걸러내기 때문이다.
+
 # 예시 블록리스트. 실제 운영 시 회사/프로젝트 정책에 맞게 확장하세요.
 BLOCKLIST: list[str] = [
     "mickey mouse", "미키마우스",
@@ -24,6 +38,7 @@ BLOCKLIST: list[str] = [
     "sanrio", "산리오",
     "짱구",
     "뽀로로", "pororo",
+    *STYLE_REFERENCE_BLOCKLIST,
 ]
 
 

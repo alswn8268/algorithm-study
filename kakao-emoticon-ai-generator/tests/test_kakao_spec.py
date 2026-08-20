@@ -40,6 +40,35 @@ def test_validate_image_file_roundtrip(tmp_path):
     assert result.is_valid, result.violations
 
 
+def test_validate_set_flags_incomplete_cut_count(tmp_path):
+    for i in range(5):
+        _rgba_with_transparency(360).save(tmp_path / f"cut{i}.png", format="PNG")
+
+    result = kakao_spec.validate_set(tmp_path, profile="proposal_static")
+    assert not result.is_valid
+    assert result.count_violation is not None
+    assert "32" in result.count_violation.message
+    # 개별 파일은 모두 규격을 만족한다.
+    assert all(r.is_valid for r in result.file_results.values())
+
+
+def test_validate_set_passes_with_full_32_cuts(tmp_path):
+    for i in range(32):
+        _rgba_with_transparency(360).save(tmp_path / f"cut{i:02d}.png", format="PNG")
+
+    result = kakao_spec.validate_set(tmp_path, profile="proposal_static")
+    assert result.is_valid, result.count_violation
+    assert len(result.file_results) == 32
+
+
+def test_validate_set_skips_count_check_when_profile_has_none(tmp_path):
+    _rgba_with_transparency(360).save(tmp_path / "frame0.png", format="PNG")
+
+    result = kakao_spec.validate_set(tmp_path, profile="proposal_animated_frame")
+    assert result.count_violation is None
+    assert result.is_valid
+
+
 def test_validate_image_missing_file(tmp_path):
     result = kakao_spec.validate_image(tmp_path / "missing.png")
     assert not result.is_valid
