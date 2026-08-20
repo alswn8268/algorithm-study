@@ -15,6 +15,7 @@ from . import kakao_spec, prompts
 from .backends import get_backend
 from .config import get_settings
 from .pipeline import generate_set
+from .sketchgen import ANIMALS, MOTION_PRESETS
 
 
 def _cmd_generate(args: argparse.Namespace) -> int:
@@ -28,6 +29,7 @@ def _cmd_generate(args: argparse.Namespace) -> int:
     backend_kwargs = {}
     if backend_name == "sketch":
         backend_kwargs["character_seed"] = args.character_seed
+        backend_kwargs["animal"] = args.animal
     elif backend_name == "dalle":
         backend_kwargs["api_key"] = args.api_key or settings.openai_api_key
     elif backend_name == "stable_diffusion":
@@ -130,14 +132,23 @@ def _cmd_samples(args: argparse.Namespace) -> int:
         )
         print(f"캐릭터 후보 {len(characters)}종 (--character-seed 값으로 그대로 재현 가능):")
         for i, c in enumerate(characters):
-            print(f"  seed={args.seed + i:<4d} 머리={c.tuft:<8s} 색={c.color[:3]}")
+            feats = ", ".join(
+                f for f, on in (
+                    ("주둥이", c.muzzle), ("볼주머니", c.cheeks),
+                    ("수염", c.whiskers), ("앞니", c.teeth),
+                ) if on
+            ) or "-"
+            print(
+                f"  seed={args.seed + i:<4d} {c.animal:<8s} 귀={c.ear:<7s} "
+                f"코={c.nose:<9s} {feats}"
+            )
     else:
         keywords = (
             [k.strip() for k in args.emotions.split(",") if k.strip()]
             if args.emotions else prompts.RECOMMENDED_EMOTION_SET
         )
         character = (
-            sketchgen.make_character(args.character_seed)
+            sketchgen.make_character(args.character_seed, animal=args.animal)
             if args.character_seed is not None else None
         )
         sheet = sketchgen.render_contact_sheet(
@@ -148,6 +159,25 @@ def _cmd_samples(args: argparse.Namespace) -> int:
 
     sheet.convert("RGB").save(out)
     print(f"→ {out}")
+    return 0
+
+
+def _cmd_animate(args: argparse.Namespace) -> int:
+    """움직이는 이모티콘용 GIF를 만든다."""
+    from . import postprocess, sketchgen
+
+    character = (
+        sketchgen.make_character(args.character_seed, animal=args.animal)
+        if args.character_seed is not None else None
+    )
+    frames = sketchgen.render_animation(
+        args.keyword, size=args.size, seed=args.seed,
+        character=character, frames=args.frames, kind=args.motion,
+    )
+    out = postprocess.frames_to_gif(frames, args.out, duration_ms=args.duration)
+    print(f"{args.keyword} · {args.motion} · {len(frames)}프레임 → {out}")
+    print("⚠️  움직이는 이모티콘 규격(프레임 수·용량)은 멈춰있는 것과 다릅니다. "
+          "제출 전 공식 가이드를 확인하세요.")
     return 0
 
 
@@ -192,6 +222,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--character-seed", type=int, default=None,
         help="sketch 백엔드용 캐릭터 디자인 seed. 세트 내내 같은 값을 쓰세요",
     )
+    p_gen.add_argument(
+        "--animal", choices=ANIMALS, default=None,
+        help="sketch 백엔드의 동물 종류",
+    )
     p_gen.add_argument("--api-key", default=None, help="dalle 백엔드용 OpenAI API 키")
     p_gen.add_argument("--model", default=None, help="stable_diffusion 백엔드용 모델 ID")
     p_gen.add_argument("--device", default=None, help="stable_diffusion 백엔드용 device (cuda/cpu/mps)")
@@ -215,11 +249,27 @@ def build_parser() -> argparse.ArgumentParser:
     p_samp.add_argument("--keyword", default="안녕", help="lineup 모드에서 쓸 공통 표정")
     p_samp.add_argument("--emotions", default=None, help="expressions 모드의 감정 목록 (기본: 32컷 세트)")
     p_samp.add_argument("--character-seed", type=int, default=None, help="expressions 모드의 캐릭터")
+    p_samp.add_argument(
+        "--animal", choices=ANIMALS, default=None,
+        help="종을 직접 고릅니다 (미지정 시 seed가 정합니다)",
+    )
     p_samp.add_argument("--cell", type=int, default=300)
     p_samp.add_argument("--cols", type=int, default=4)
     p_samp.add_argument("--seed", type=int, default=0)
     p_samp.add_argument("--dark", action="store_true", help="다크모드 배경에 올려 가독성 확인")
     p_samp.set_defaults(func=_cmd_samples)
+
+    p_anim = sub.add_parser("animate", help="움직이는 이모티콘용 GIF 생성")
+    p_anim.add_argument("--keyword", default="기쁨", help="표정으로 쓸 감정 키워드")
+    p_anim.add_argument("--motion", choices=list(MOTION_PRESETS), default="bounce")
+    p_anim.add_argument("--frames", type=int, default=8)
+    p_anim.add_argument("--duration", type=int, default=110, help="프레임당 표시 시간(ms)")
+    p_anim.add_argument("--size", type=int, default=360)
+    p_anim.add_argument("--character-seed", type=int, default=None)
+    p_anim.add_argument("--animal", choices=ANIMALS, default=None)
+    p_anim.add_argument("--seed", type=int, default=None)
+    p_anim.add_argument("--out", default="output/animated.gif")
+    p_anim.set_defaults(func=_cmd_animate)
 
     p_check = sub.add_parser("checklist", help="제출 전 수동 검토 체크리스트 출력")
     p_check.set_defaults(func=_cmd_checklist)

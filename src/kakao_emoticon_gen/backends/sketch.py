@@ -20,11 +20,18 @@ _KEYWORD_RE = re.compile(r'expressing "(.+?)" emotion')
 
 
 class SketchGenerator(ImageGenerator):
-    def __init__(self, character: CharacterSpec | None = None, character_seed: int | None = None):
+    def __init__(
+        self,
+        character: CharacterSpec | None = None,
+        character_seed: int | None = None,
+        animal: str | None = None,
+    ):
         if character is not None:
             self.character = character
         elif character_seed is not None:
-            self.character = sketchgen.make_character(character_seed)
+            self.character = sketchgen.make_character(character_seed, animal=animal)
+        elif animal is not None:
+            self.character = sketchgen.make_character(0, animal=animal)
         else:
             self.character = sketchgen.DEFAULT_CHARACTER
 

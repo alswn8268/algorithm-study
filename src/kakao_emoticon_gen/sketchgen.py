@@ -46,30 +46,77 @@ _SUPERSAMPLE = 2
 class CharacterSpec:
     """32컷 내내 고정되는 캐릭터의 생김새."""
     color: tuple[int, int, int, int]
+    animal: str = "bear"
     rx_ratio: float = 0.27       # 몸통 가로 반지름
     ry_ratio: float = 0.27       # 몸통 세로 반지름
     bulge: float = 0.0           # 아래쪽이 불룩한 정도 (서양배 모양)
     eye_scale: float = 1.0
     eye_spread: float = 0.39     # 두 눈 사이 거리
-    tuft: str = "none"           # none | sprout | ears | cowlick
+    # --- 이목구비 ---
+    ear: str = "round"           # round | tiny | long | pointy | floppy | none
+    nose: str = "dot"            # dot | big | triangle | beak | none
+    muzzle: bool = True          # 입 주변 밝은 영역 (주둥이)
+    cheeks: bool = False         # 햄스터 볼주머니
+    whiskers: bool = False
+    teeth: bool = False          # 앞니
+    tail: str = "none"           # stub | curl | none
     name: str = "character"
 
 
-TUFTS = ["none", "sprout", "ears", "cowlick"]
+# 인기 이모티콘은 대부분 동물형이고, 종을 알아보게 하는 건 결국
+# 귀 모양 · 코 · 주둥이 · 볼 · 수염 몇 가지의 조합이다.
+# 특정 캐릭터를 베끼는 게 아니라 이 "구조 문법"만 가져온다.
+ANIMAL_ARCHETYPES: dict[str, dict] = {
+    "bear":    {"ear": "round",  "nose": "dot",      "muzzle": True,  "tail": "stub"},
+    "hamster": {"ear": "tiny",   "nose": "dot",      "muzzle": True,  "cheeks": True,
+                "whiskers": True, "teeth": True},
+    "rabbit":  {"ear": "long",   "nose": "triangle", "muzzle": True,  "teeth": True, "tail": "stub"},
+    "cat":     {"ear": "pointy", "nose": "triangle", "muzzle": False, "whiskers": True, "tail": "curl"},
+    "dog":     {"ear": "floppy", "nose": "big",      "muzzle": True,  "tail": "curl"},
+    "duck":    {"ear": "none",   "nose": "beak",     "muzzle": False},
+    "seal":    {"ear": "none",   "nose": "dot",      "muzzle": True,  "whiskers": True},
+}
+
+ANIMALS = list(ANIMAL_ARCHETYPES)
+
+# 종별로 어울리는 체형. 토끼는 갸름하고 물범은 옆으로 퍼진다.
+_BODY_HINTS: dict[str, tuple[float, float]] = {
+    "rabbit": (0.245, 0.290),
+    "seal": (0.300, 0.240),
+    "duck": (0.265, 0.275),
+}
 
 
-def make_character(seed: int, name: str | None = None) -> CharacterSpec:
-    """seed 하나로 캐릭터 디자인을 결정론적으로 뽑는다."""
+def make_character(
+    seed: int, name: str | None = None, animal: str | None = None,
+    color: tuple[int, int, int, int] | None = None,
+) -> CharacterSpec:
+    """seed 하나로 캐릭터 디자인을 결정론적으로 뽑는다.
+
+    `animal`/`color`를 주면 그 부분만 고정하고 나머지는 seed로 정해진다.
+    """
     rng = random.Random(seed)
+    kind = animal or rng.choice(ANIMALS)
+    archetype = ANIMAL_ARCHETYPES[kind]
+
+    base_rx, base_ry = _BODY_HINTS.get(kind, (0.270, 0.270))
+    picked_color = rng.choice(PALETTE)
     return CharacterSpec(
-        color=rng.choice(PALETTE),
-        rx_ratio=rng.uniform(0.230, 0.300),
-        ry_ratio=rng.uniform(0.230, 0.305),
-        bulge=rng.choice([0.0, 0.12, 0.22, 0.30]),
-        eye_scale=rng.uniform(0.9, 1.35),
-        eye_spread=rng.uniform(0.33, 0.46),
-        tuft=rng.choice(TUFTS),
-        name=name or f"char{seed}",
+        color=color or picked_color,
+        animal=kind,
+        rx_ratio=base_rx * rng.uniform(0.94, 1.08),
+        ry_ratio=base_ry * rng.uniform(0.94, 1.08),
+        bulge=rng.choice([0.0, 0.12, 0.22]),
+        eye_scale=rng.uniform(0.95, 1.35),
+        eye_spread=rng.uniform(0.33, 0.44),
+        ear=archetype["ear"],
+        nose=archetype["nose"],
+        muzzle=archetype.get("muzzle", False),
+        cheeks=archetype.get("cheeks", False),
+        whiskers=archetype.get("whiskers", False),
+        teeth=archetype.get("teeth", False),
+        tail=archetype.get("tail", "none"),
+        name=name or f"{kind}{seed}",
     )
 
 
@@ -147,6 +194,12 @@ def pen_stroke(
         draw.line(shaky, fill=color, width=width, joint="curve")
 
 
+def _polygon_mask(size: tuple[int, int], polygon: list[tuple[float, float]]) -> Image.Image:
+    mask = Image.new("L", size, 0)
+    ImageDraw.Draw(mask).polygon(polygon, fill=255)
+    return mask
+
+
 def scribble_fill(
     canvas: Image.Image, outline: list[tuple[float, float]],
     color: tuple[int, int, int, int], rng: random.Random, spill: float = 7.0,
@@ -164,8 +217,7 @@ def scribble_fill(
     ox, oy = rng.uniform(-spill, spill), rng.uniform(-spill, spill)
     shifted = [(x + ox, y + oy) for x, y in outline]
 
-    region = Image.new("L", size, 0)
-    ImageDraw.Draw(region).polygon(shifted, fill=255)
+    region = _polygon_mask(size, shifted)
 
     strokes = Image.new("L", size, 0)
     sdraw = ImageDraw.Draw(strokes)
@@ -322,54 +374,159 @@ _POSE_ANGLES = {
 }
 
 
-def _draw_limbs(draw, rng, body, cx, cy, rx, ry, pose: str, lw: int) -> None:
+def _draw_limbs(canvas, draw, rng, body, cx, cy, rx, ry, pose: str, lw: int,
+                fill_color, limb_delta: float = 0.0) -> None:
     """팔다리는 몸통 윤곽선에서 출발해 바깥으로만 뻗는다 (몸을 뚫지 않게)."""
     left_deg, right_deg = _POSE_ANGLES.get(pose, _POSE_ANGLES["down"])
+    left_deg -= limb_delta
+    right_deg += limb_delta
+
+    def paw(px, py, r):
+        """손/발 끝의 동그란 뭉치. 이게 없으면 팔다리가 그냥 뻗은 선으로 보인다."""
+        blob = wobbly_ellipse(px, py, r, r * rng.uniform(0.85, 1.1), rng, 26, 0.16)
+        canvas.paste(fill_color, (0, 0), _polygon_mask(canvas.size, blob))
+        pen_stroke(draw, blob, rng, lw, 2, drift=1.5)
 
     for angle_deg, length in (
-        (left_deg, rx * rng.uniform(0.52, 0.78)),
-        (right_deg, rx * rng.uniform(0.52, 0.78)),
+        (left_deg, rx * rng.uniform(0.48, 0.70)),
+        (right_deg, rx * rng.uniform(0.48, 0.70)),
     ):
-        # 부착점은 몸통 옆구리, 뻗는 방향은 포즈가 정한다
-        side = 180 if math.cos(math.radians(angle_deg)) < 0 else 0
-        x0, y0 = _point_on(body, cx, cy, side + rng.uniform(-14, 14))
         a = math.radians(angle_deg)
+        # 팔이 위로 갈 땐 어깨 쪽, 아래로 갈 땐 옆구리 아래쪽에서 나와야
+        # 몸에서 뻗어나온 것처럼 보인다
+        left_side = math.cos(a) < 0
+        lift = -1 if math.sin(a) < 0 else 1
+        attach = (180 + lift * 22) if left_side else (0 - lift * 22)
+        x0, y0 = _point_on(body, cx, cy, attach + rng.uniform(-8, 8))
+
         mid = (x0 + math.cos(a) * length * 0.55 + rng.uniform(-6, 6),
                y0 + math.sin(a) * length * 0.55 + rng.uniform(-6, 6))
         end = (x0 + math.cos(a) * length, y0 + math.sin(a) * length)
         pen_stroke(draw, [(x0, y0), mid, end], rng, lw, 2)
+        paw(end[0], end[1], rx * rng.uniform(0.085, 0.115))
 
     # 다리 — 길이를 확실히 다르게
     for sx in (-1, 1):
         x0, y0 = _point_on(body, cx, cy, 90 + sx * rng.uniform(14, 30))
-        leg = ry * rng.uniform(0.30, 0.48)
+        leg = ry * rng.uniform(0.26, 0.42)
         knee = (x0 + rng.uniform(-6, 6), y0 + leg * 0.55)
-        foot = (x0 + sx * rng.uniform(4, 18), y0 + leg)
+        foot = (x0 + sx * rng.uniform(4, 16), y0 + leg)
         pen_stroke(draw, [(x0, y0), knee, foot], rng, lw, 2)
+        paw(foot[0], foot[1], rx * rng.uniform(0.085, 0.115))
 
 
-def _draw_tuft(draw, rng, body, cx, cy, rx, ry, kind: str, lw: int) -> None:
-    """머리 위 장식 — 캐릭터 정체성이라 세트 내내 같아야 한다."""
+def _lighten(color: tuple[int, int, int, int], amount: float) -> tuple[int, int, int, int]:
+    r, g, b, a = color
+    return (
+        int(r + (255 - r) * amount),
+        int(g + (255 - g) * amount),
+        int(b + (255 - b) * amount),
+        a,
+    )
+
+
+def _ear_shapes(rng, cx, cy, rx, ry, kind: str) -> list[list[tuple[float, float]]]:
+    """귀 윤곽 경로를 좌우 한 쌍으로 만든다. 좌우를 미세하게 다르게 뽑는다."""
+    if kind == "none":
+        return []
+
+    shapes = []
+    for sx in (-1, 1):
+        wiggle = rng.uniform(0.92, 1.10)
+        if kind == "round":       # 곰 — 머리 위에 큼직한 반원
+            ex = cx + sx * rx * rng.uniform(0.52, 0.64)
+            ey = cy - ry * rng.uniform(0.72, 0.84)
+            shapes.append(wobbly_ellipse(ex, ey, rx * 0.28 * wiggle, rx * 0.27 * wiggle, rng, 40, 0.13))
+        elif kind == "tiny":      # 햄스터 — 작고 동그란 귀
+            ex = cx + sx * rx * rng.uniform(0.55, 0.66)
+            ey = cy - ry * rng.uniform(0.66, 0.76)
+            shapes.append(wobbly_ellipse(ex, ey, rx * 0.17 * wiggle, rx * 0.17 * wiggle, rng, 36, 0.14))
+        elif kind == "long":      # 토끼 — 길쭉한 귀, 살짝 벌어지게
+            ex = cx + sx * rx * rng.uniform(0.26, 0.38)
+            ey = cy - ry * rng.uniform(1.02, 1.18)
+            tilt = sx * rng.uniform(0.12, 0.30)
+            shapes.append(wobbly_ellipse(ex, ey, rx * 0.16 * wiggle, ry * 0.42 * wiggle,
+                                         rng, 48, 0.10, tilt=tilt))
+        elif kind == "pointy":    # 고양이 — 삼각 귀. 밑동이 머리 안에 묻히게 낮춘다
+            ex = cx + sx * rx * rng.uniform(0.44, 0.54)
+            ey = cy - ry * rng.uniform(0.50, 0.60)
+            w, h = rx * 0.24 * wiggle, ry * 0.34 * wiggle
+            shapes.append(_roughen([
+                (ex - w, ey + h * 0.55), (ex + sx * w * 0.25, ey - h * 0.75),
+                (ex + w, ey + h * 0.55), (ex - w, ey + h * 0.55),
+            ], rng, rx * 0.03))
+        elif kind == "floppy":    # 강아지 — 옆으로 축 늘어진 귀
+            ex = cx + sx * rx * rng.uniform(0.72, 0.84)
+            ey = cy - ry * rng.uniform(0.18, 0.32)
+            shapes.append(wobbly_ellipse(ex, ey, rx * 0.20 * wiggle, ry * 0.36 * wiggle,
+                                         rng, 44, 0.12, tilt=sx * 0.28))
+    return shapes
+
+
+def _draw_nose(draw, rng, cx, cy, rx, kind: str, lw: int) -> None:
     if kind == "none":
         return
-    top = _point_on(body, cx, cy, -90 + rng.uniform(-8, 8))
+    if kind in ("dot", "big"):
+        s = rx * (0.075 if kind == "dot" else 0.11)
+        # 외곽선 + 점을 겹쳐 그리면 뭉개진다. 통째로 칠한 뒤 한 획만 덧그린다.
+        blob = wobbly_ellipse(cx, cy, s, s * 0.82, rng, 28, 0.16)
+        draw.polygon(blob, fill=INK)
+        pen_stroke(draw, blob, rng, max(2, lw - 1), 1)
+    elif kind == "triangle":
+        s = rx * 0.085
+        tri = _roughen([
+            (cx - s, cy - s * 0.55), (cx + s, cy - s * 0.55), (cx, cy + s * 0.8),
+            (cx - s, cy - s * 0.55),
+        ], rng, rx * 0.014)
+        draw.polygon(tri, fill=INK)
+        pen_stroke(draw, tri, rng, max(2, lw - 1), 1)
 
-    if kind == "sprout":
-        tip = (top[0] + rng.uniform(-6, 6), top[1] - ry * 0.30)
-        pen_stroke(draw, [top, tip], rng, lw, 2)
-        pen_stroke(draw, wobbly_ellipse(tip[0] + rx * 0.10, tip[1] - ry * 0.03,
-                                        rx * 0.13, rx * 0.09, rng, 32, 0.16), rng, lw, 2)
-    elif kind == "ears":
-        for sx in (-1, 1):
-            ex = top[0] + sx * rx * rng.uniform(0.40, 0.52)
-            ey = top[1] + ry * rng.uniform(0.06, 0.16)
-            pen_stroke(draw, _arc_points(ex, ey, rx * 0.19, ry * 0.21, 165, 375), rng, lw, 2)
-    elif kind == "cowlick":
-        for i in range(3):
-            bx = top[0] + (i - 1) * rx * 0.16 + rng.uniform(-4, 4)
-            pen_stroke(draw, [(bx, top[1] + 4),
-                              (bx + rng.uniform(-8, 8), top[1] - ry * rng.uniform(0.12, 0.20))],
-                       rng, lw, 2)
+
+def _draw_beak(draw, rng, cx, cy, rx, lw: int) -> None:
+    """오리 — 코와 입을 겸하는 부리. 이 경우 별도 입을 그리지 않는다."""
+    w, h = rx * 0.30, rx * 0.17
+    beak = _roughen([
+        (cx - w, cy - h * 0.2), (cx, cy - h), (cx + w, cy - h * 0.2),
+        (cx + w * 0.55, cy + h), (cx - w * 0.55, cy + h), (cx - w, cy - h * 0.2),
+    ], rng, rx * 0.018)
+    draw.polygon(beak, fill=(255, 190, 92, 255))
+    pen_stroke(draw, beak, rng, lw, 2)
+    # 부리 가운데 선
+    pen_stroke(draw, [(cx - w * 0.75, cy - h * 0.1), (cx + w * 0.75, cy - h * 0.1)], rng, max(2, lw - 1), 1)
+
+
+def _draw_whiskers(draw, rng, cx, cy, rx, lw: int) -> None:
+    for sx in (-1, 1):
+        for i in range(rng.randint(2, 3)):
+            y = cy + (i - 1) * rx * 0.10 + rng.uniform(-3, 3)
+            x0 = cx + sx * rx * rng.uniform(0.34, 0.44)
+            x1 = cx + sx * rx * rng.uniform(0.66, 0.80)
+            pen_stroke(draw, [(x0, y), (x1, y + rng.uniform(-8, 8))], rng, max(2, lw - 1), 1)
+
+
+def _draw_teeth(draw, rng, cx, cy, rx, lw: int) -> None:
+    """앞니 — 햄스터/토끼를 단번에 알아보게 하는 요소."""
+    w, h = rx * 0.062, rx * 0.10
+    gap = w * 1.15
+    for sx in (-1, 1):
+        x = cx + sx * gap * 0.55
+        rect = _roughen([
+            (x - w, cy), (x + w, cy), (x + w, cy + h), (x - w, cy + h), (x - w, cy),
+        ], rng, rx * 0.010)
+        draw.polygon(rect, fill=(255, 255, 255, 255))
+        pen_stroke(draw, rect, rng, max(2, lw - 1), 1)
+
+
+def _draw_tail(draw, rng, body, cx, cy, rx, ry, kind: str, lw: int) -> None:
+    if kind == "none":
+        return
+    base = _point_on(body, cx, cy, rng.uniform(28, 48))
+    if kind == "stub":
+        pen_stroke(draw, wobbly_ellipse(base[0] + rx * 0.10, base[1] + ry * 0.04,
+                                        rx * 0.13, rx * 0.12, rng, 28, 0.16), rng, lw, 2)
+    elif kind == "curl":
+        pts = _arc_points(base[0] + rx * 0.16, base[1] - ry * 0.02, rx * 0.18, ry * 0.20, 120, -80, 20)
+        pen_stroke(draw, _roughen(pts, rng, rx * 0.02), rng, lw, 2)
 
 
 def _draw_extras(draw, rng, cx, cy, rx, ry, extras: list[str], lw: int) -> None:
@@ -486,21 +643,59 @@ def _seed_for(keyword: str, seed: int | None) -> int:
 # 메인 진입점
 # --------------------------------------------------------------------------
 
+@dataclass(frozen=True)
+class Motion:
+    """한 프레임의 움직임. 그림 자체는 건드리지 않고 자세만 바꾼다.
+
+    움짤은 **같은 seed + 다른 Motion**으로 만든다. seed를 바꾸면 선이 매
+    프레임 새로 그려져 화면이 지글거리기 때문이다 (boiling line 효과는
+    의도했을 때만 써야 한다).
+    """
+    dy: float = 0.0       # 세로 이동 (세로 반지름 대비 비율)
+    tilt: float = 0.0     # 몸통 기울기 (라디안)
+    limb: float = 0.0     # 팔 각도 변화 (도)
+    squash: float = 0.0   # 눌림 (양수면 납작해지고 옆으로 퍼짐)
+
+
+def _bounce(t: float) -> Motion:
+    phase = math.sin(t * math.tau)
+    return Motion(
+        dy=-0.16 * max(0.0, phase),
+        squash=0.12 * max(0.0, -phase),
+        limb=20.0 * phase,
+    )
+
+
+def _wiggle(t: float) -> Motion:
+    phase = math.sin(t * math.tau)
+    return Motion(tilt=0.11 * phase, limb=12.0 * phase, dy=-0.03 * abs(phase))
+
+
+def _nod(t: float) -> Motion:
+    phase = math.sin(t * math.tau)
+    return Motion(dy=0.07 * phase, squash=0.05 * max(0.0, phase))
+
+
+MOTION_PRESETS = {"bounce": _bounce, "wiggle": _wiggle, "nod": _nod}
+
+
 DEFAULT_CHARACTER = CharacterSpec(
-    color=(255, 208, 150, 255), rx_ratio=0.27, ry_ratio=0.27,
-    bulge=0.10, eye_scale=1.1, eye_spread=0.39, tuft="sprout", name="default",
+    color=(255, 208, 150, 255), animal="bear", rx_ratio=0.27, ry_ratio=0.27,
+    bulge=0.10, eye_scale=1.1, eye_spread=0.39,
+    ear="round", nose="dot", muzzle=True, tail="stub", name="default",
 )
 
 
 def render_character(
     keyword: str, size: int = 360, seed: int | None = None,
-    character: CharacterSpec | None = None,
+    character: CharacterSpec | None = None, motion: Motion | None = None,
 ) -> Image.Image:
     """감정 키워드 하나를 발그림 캐릭터 한 컷으로 그린다.
 
     `character`가 같으면 같은 캐릭터, `seed`가 다르면 손떨림만 달라진다.
     """
     spec_char = character or DEFAULT_CHARACTER
+    move = motion or Motion()
     rng = random.Random(_seed_for(keyword, seed))
     face = EXPRESSIONS.get(keyword) or _fallback_expression(keyword)
 
@@ -516,25 +711,74 @@ def render_character(
     ry = S * spec_char.ry_ratio
     tilt = rng.uniform(-0.12, 0.12)
 
+    # 모션은 난수를 뽑은 *뒤에* 더한다. 순서를 바꾸면 프레임마다 rng 소비가
+    # 달라져 선이 통째로 다시 그려지고 화면이 지글거린다.
+    cy += ry * move.dy
+    tilt += move.tilt
+    rx *= 1.0 + move.squash * 0.5
+    ry *= 1.0 - move.squash
+
     body = wobbly_ellipse(cx, cy, rx, ry, rng, 96, rng.uniform(0.05, 0.09),
                           gap=rng.uniform(0.015, 0.05), tilt=tilt, bulge=spec_char.bulge)
+    ears = _ear_shapes(rng, cx, cy, rx, ry, spec_char.ear)
 
-    # 채색을 먼저, 그 위에 잉크 선 — 그래야 선이 살아있으면서 색은 삐져나간다
+    # 귀 → 몸통 순서로 칠해야 몸통이 귀 밑동을 덮어 자연스럽게 이어진다
+    for ear in ears:
+        scribble_fill(canvas, ear, spec_char.color, rng, spill=S * 0.010)
     scribble_fill(canvas, body, spec_char.color, rng, spill=S * 0.022)
-    _draw_limbs(draw, rng, body, cx, cy, rx, ry, face.get("pose", "down"), lw)
-    _draw_tuft(draw, rng, body, cx, cy, rx, ry, spec_char.tuft, lw)
+
+    for ear in ears:
+        pen_stroke(draw, ear, rng, lw, 2, drift=S * 0.003)
+    _draw_tail(draw, rng, body, cx, cy, rx, ry, spec_char.tail, lw)
+    _draw_limbs(canvas, draw, rng, body, cx, cy, rx, ry,
+                face.get("pose", "down"), lw, spec_char.color, move.limb)
+
+    # 채색 위에 잉크 선 — 선이 살아있으면서 색은 삐져나간다
     pen_stroke(draw, body, rng, lw, passes=rng.choice([2, 3]), drift=S * 0.004)
 
-    # 얼굴
+    # 볼주머니 (햄스터) — 몸통 선 위에 얹어 실루엣이 옆으로 부풀게
+    if spec_char.cheeks:
+        for sx in (-1, 1):
+            px = cx + sx * rx * rng.uniform(0.48, 0.58)
+            py = cy + ry * rng.uniform(0.30, 0.40)
+            prx, pry = rx * rng.uniform(0.34, 0.40), rx * rng.uniform(0.27, 0.32)
+
+            scribble_fill(canvas, wobbly_ellipse(px, py, prx, pry, rng, 40, 0.12),
+                          spec_char.color, rng, spill=S * 0.007)
+            # 바깥쪽 호만 긋는다. 원을 통째로 그리면 얼굴에 원 두 개를 붙인
+            # 꼴이 되고, 볼주머니는 실루엣이 부풀어 보여야 한다.
+            start, end = (90, 270) if sx < 0 else (-90, 90)
+            arc = _arc_points(px, py, prx, pry, start, end, 30)
+            pen_stroke(draw, _roughen(arc, rng, rx * 0.022), rng, lw, 2, drift=S * 0.003)
+
+    # 얼굴 배치 — 주둥이가 있으면 이목구비를 살짝 위로 올려 자리를 만든다
     eye_y = cy - ry * rng.uniform(0.14, 0.24)
+    muzzle_y = cy + ry * rng.uniform(0.20, 0.30)
+    mouth_y = muzzle_y + (rx * 0.06 if spec_char.muzzle else 0)
+
+    if spec_char.muzzle:
+        snout = wobbly_ellipse(cx + rng.uniform(-rx * 0.04, rx * 0.04), muzzle_y,
+                               rx * 0.34, rx * 0.25, rng, 44, 0.12)
+        scribble_fill(canvas, snout, _lighten(spec_char.color, 0.55), rng, spill=S * 0.006)
+
     eye_dx = rx * spec_char.eye_spread
     _draw_eyes(draw, rng,
                cx - eye_dx * rng.uniform(0.92, 1.08),
                cx + eye_dx * rng.uniform(0.92, 1.08),
                eye_y, S * 0.021 * spec_char.eye_scale, face.get("eyes", "dots"), lw)
-    _draw_mouth(draw, rng, cx + rng.uniform(-rx * 0.07, rx * 0.07),
-                cy + ry * rng.uniform(0.18, 0.30), rx * 0.44,
-                face.get("mouth", "smile"), lw)
+
+    if spec_char.nose == "beak":
+        # 부리가 입을 겸하므로 별도 입은 그리지 않는다
+        _draw_beak(draw, rng, cx, muzzle_y, rx, lw)
+    else:
+        nose_y = muzzle_y - rx * 0.12
+        _draw_nose(draw, rng, cx, nose_y, rx, spec_char.nose, lw)
+        if spec_char.whiskers:
+            _draw_whiskers(draw, rng, cx, nose_y, rx, lw)
+        _draw_mouth(draw, rng, cx + rng.uniform(-rx * 0.05, rx * 0.05),
+                    mouth_y, rx * 0.40, face.get("mouth", "smile"), lw)
+        if spec_char.teeth:
+            _draw_teeth(draw, rng, cx, mouth_y + rx * 0.06, rx, lw)
 
     _draw_extras(draw, rng, cx, cy, rx, ry, face.get("extras", []), lw)
 
@@ -561,12 +805,51 @@ def render_contact_sheet(
     return sheet
 
 
+def render_animation(
+    keyword: str, size: int = 360, seed: int | None = None,
+    character: CharacterSpec | None = None, frames: int = 8, kind: str = "bounce",
+) -> list[Image.Image]:
+    """움직이는 이모티콘용 루프 프레임을 만든다.
+
+    모든 프레임이 **같은 seed**를 쓰므로 선은 그대로 있고 자세만 움직인다.
+    프레임마다 seed를 바꾸면 선이 통째로 다시 그려져 화면이 지글거린다.
+
+    반환한 프레임은 `postprocess.frames_to_gif()`로 GIF가 된다.
+
+    ⚠️ 움직이는 이모티콘의 카카오 제출 규격(프레임 수·용량·재생 시간)은
+    멈춰있는 이모티콘과 다르다. 제출 전 공식 가이드를 확인할 것.
+    """
+    motion_fn = MOTION_PRESETS.get(kind)
+    if motion_fn is None:
+        raise ValueError(f"unknown motion '{kind}'. choose from: {', '.join(MOTION_PRESETS)}")
+    if frames < 2:
+        raise ValueError("frames must be at least 2")
+
+    return [
+        render_character(keyword, size=size, seed=seed, character=character,
+                         motion=motion_fn(i / frames))
+        for i in range(frames)
+    ]
+
+
 def render_lineup(
     count: int = 8, keyword: str = "안녕", cell: int = 300, cols: int = 4,
     base_seed: int = 0, background: tuple[int, int, int, int] = (255, 255, 255, 255),
 ) -> tuple[Image.Image, list[CharacterSpec]]:
-    """서로 다른 캐릭터 후보를 같은 표정으로 나란히 그려 디자인을 비교한다."""
-    characters = [make_character(base_seed + i, name=f"후보{i + 1}") for i in range(count)]
+    """서로 다른 캐릭터 후보를 같은 표정으로 나란히 그려 디자인을 비교한다.
+
+    후보 수가 종 수 이하이면 종이 겹치지 않게 하나씩 배정한다 — 같은 동물만
+    여러 번 나오면 비교가 안 되기 때문이다.
+    """
+    if count <= len(ANIMALS):
+        picks: list[str | None] = ANIMALS[:count]
+    else:
+        picks = [ANIMALS[i % len(ANIMALS)] for i in range(count)]
+    characters = [
+        make_character(base_seed + i, name=f"후보{i + 1}", animal=picks[i],
+                       color=PALETTE[i % len(PALETTE)])
+        for i in range(count)
+    ]
     rows = math.ceil(count / cols)
     sheet = Image.new("RGBA", (cols * cell, rows * cell), background)
     for i, char in enumerate(characters):
