@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kakao-emoticon-generator"
+version = "0.1.0"
+description = "감정 키워드로 카카오 이모티콘 스타일 이미지를 생성하고 제출 규격에 맞게 후처리하는 파이프라인"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "Pillow>=10.0.0",
+    "numpy>=1.24.0",
+]
+
+[project.optional-dependencies]
+dalle = ["openai>=1.0.0"]
+sd = ["torch>=2.0.0", "diffusers>=0.27.0", "accelerate>=0.27.0"]
+rembg = ["rembg>=2.0.0"]
+dev = ["pytest>=7.0.0"]
+
+[project.scripts]
+kakao-emoticon-gen = "kakao_emoticon_gen.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

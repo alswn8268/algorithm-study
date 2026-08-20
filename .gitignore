@@ -1,14 +1,15 @@
-# Jupyter
-.ipynb_checkpoints/
-**/.ipynb_checkpoints/
-
 # Python
+.venv/
+venv/
 __pycache__/
 *.py[cod]
 *.pyo
 .env
-venv/
-.venv/
+.pytest_cache/
+
+# 생성 결과물 (approved / needs_review / manifest.json)
+output/*
+!output/.gitkeep
 
 # OS
 .DS_Store
@@ -17,3 +18,8 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+
+# 빌드 산출물
+*.egg-info/
+build/
+dist/
