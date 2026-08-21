@@ -24,11 +24,14 @@ STYLE_PRESETS: dict[str, str] = {
         "thin shaky ballpoint pen line, wobbly trembling outline drawn with an unsteady hand, "
         "one single continuous contour around the whole body so ears and stubby limbs "
         "grow out of the body instead of looking like separate shapes stuck on, "
-        "extremely tiny solid black dot eyes set high on the face and close together, "
+        "big round shiny eyes with large bright highlights, set high on the face, "
+        "expression pushed to an unhinged manic extreme, "
         "very long midface with a wide empty gap between the eyes and the mouth, "
         "small simple mouth placed low, "
         "lopsided asymmetric wonky proportions, squashed uneven head, limbs of unequal length, "
         "clean flat off-white cream fill with no texture, "
+        "soft brown facial features rather than pure black, "
+        "hearts and teardrops drawn in colour, "
         "single character, centered, plain white paper background, "
         "amateur sketchbook doodle, intentionally unpolished"
     ),
@@ -36,9 +39,9 @@ STYLE_PRESETS: dict[str, str] = {
     "text_based": (
         "a crude careless doodle of a simple round animal creature, "
         "thin shaky ballpoint pen line, one continuous contour around the body, "
-        "extremely tiny black dot eyes set high, long midface, mouth placed low, "
+        "big round shiny eyes with large highlights, set high, long midface, mouth placed low, "
         "lopsided asymmetric proportions, "
-        "clean flat off-white fill, "
+        "clean flat off-white fill, soft brown facial features, "
         "character placed in the upper portion with generous empty blank space left "
         "at the bottom of the frame, completely wordless with no writing anywhere, "
         "single character, plain white paper background, amateur sketchbook doodle"
@@ -49,9 +52,9 @@ STYLE_PRESETS: dict[str, str] = {
         "a crude careless doodle of a simple round animal creature, "
         "caught mid-motion in an exaggerated flailing pose, "
         "thin shaky ballpoint pen line, one continuous contour around the body, "
-        "extremely tiny black dot eyes set high, long midface, mouth placed low, "
+        "big round shiny eyes with large highlights, set high, long midface, mouth placed low, "
         "lopsided asymmetric wonky proportions, "
-        "clean flat off-white fill, "
+        "clean flat off-white fill, soft brown facial features, "
         "single animation frame, single character, plain white paper background, "
         "amateur sketchbook doodle, intentionally unpolished"
     ),
@@ -78,8 +81,7 @@ NEGATIVE_PROMPT_BASE = (
 # 스타일별 추가 네거티브. 발그림 계열은 AI가 기본적으로 "잘 그리려는" 경향을
 # 억누르는 것이 핵심이라, 정제된 결과물을 유도하는 단어를 광범위하게 배제한다.
 _SLOPPY_NEGATIVE = (
-    "big eyes, large eyes, round anime eyes, eye highlights, sparkling eyes, eyelashes, "
-    "crescent eyes, glossy eyes, "
+    "dead flat eyes, eyelashes, realistic eyes, "
     "gradient, shading, soft shading, cel shading, ambient occlusion, textured fill, "
     "short midface, mouth close to the eyes, crowded facial features, "
     "symmetrical, perfectly symmetrical, separate outlines around each body part, "

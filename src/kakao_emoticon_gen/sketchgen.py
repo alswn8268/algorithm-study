@@ -5,13 +5,18 @@ docs/STYLE_GUIDE.md의 고정 규칙을 그대로 코드로 옮긴 것이다. �
 
 - 형태  : 큰 머리 + 작은 몸통이 겹친 구조. 통짜 원 하나면 감자에 혹이
           붙은 모양이 되고 동물로 안 읽힌다
-- 눈    : 아주 작은 점. 얼굴 위쪽에 좁게. 크게 그리지 않는다
+- 눈    : 초롱초롱(sparkle)과 광기(manic) 두 계열. 하이라이트가 크고
+          많을수록 귀엽고 흥분해 보인다 — 그게 이 표정의 작동 원리다
 - 중안부: 눈과 입 사이를 일부러 멀리 벌린다 (현재 트렌드의 핵심 매력 포인트)
 - 선    : 바깥 윤곽은 실루엣 하나로 이어 긋고, 귀·팔다리는 **안쪽 구분선과
           한 톤 낮춘 평면 명암**으로 나눈다. 몸에 가려지는 부분은 그리지
           않는다 (안 그러면 팔다리가 몸을 투과해 보인다)
 - 비율  : 좌우를 살짝 다르게. 다만 과하게 일그러뜨리지 않는다
 - 채색  : 깔끔한 평면 채색. 흰/크림색 몸이 주류다
+- 색    : 이목구비는 새까맣게 찍지 않고 갈색 계열로 풀어준다. 하트·물방울
+          같은 표현은 색을 넣어야 눈에 들어온다
+- 팔다리: 직선 캡슐이 아니라 휜 뼈대(_ribbon)에 살을 붙인다. 직선이면
+          막대기처럼 뻣뻣하다
 
 **캐릭터 정체성(CharacterSpec)과 손떨림(seed)은 분리돼 있다.** 32컷 한 세트는
 같은 CharacterSpec을 공유해야 "같은 캐릭터"가 되고, 컷마다 seed만 달라져서
@@ -34,6 +39,23 @@ from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
 # 완전한 검정보다 살짝 따뜻한 볼펜 잉크 색
 INK = (38, 34, 30, 255)
+
+# 이목구비는 윤곽선보다 살짝 풀어준 색을 쓴다. 전부 새까맣게 찍으면
+# 얼굴만 무겁게 도드라진다.
+EYE_INK = (46, 38, 36, 255)
+MOUTH_INK = (98, 68, 62, 255)
+BROW_INK = (86, 60, 55, 255)
+NOSE_DARK = (84, 56, 50, 255)
+NOSE_PINK = (232, 138, 148, 255)
+
+# 하트·물방울 같은 표현은 색이 있어야 눈에 들어온다.
+HEART_FILL = (255, 116, 140, 255)
+HEART_LINE = (214, 62, 92, 255)
+DROP_FILL = (162, 210, 244, 255)
+DROP_LINE = (86, 152, 204, 255)
+SPARKLE_COLOR = (255, 196, 84, 255)
+BLUSH_COLOR = (245, 150, 158, 255)
+ANGER_COLOR = (226, 84, 84, 255)
 
 # 2025 트렌드는 "낙서형 흰둥이" — 흰/크림색 몸이 주류라 맨 앞에 둔다.
 # 흰 몸은 다크모드에서도 형체가 또렷하다.
@@ -307,57 +329,98 @@ def _arc_points(
 # 표정 파츠
 # --------------------------------------------------------------------------
 
-def _draw_eyes(draw, rng, lx, rx_, ey, base_r, kind: str, lw: int) -> None:
-    """짝눈이 이 화풍의 핵심 매력 포인트라 좌우를 반드시 다르게 그린다."""
-    l_r = base_r * rng.uniform(0.75, 0.95)
-    r_r = base_r * rng.uniform(1.05, 1.30)
-    l_y = ey + rng.uniform(-base_r * 0.45, base_r * 0.25)
-    r_y = ey + rng.uniform(-base_r * 0.25, base_r * 0.45)
+def _eye_highlight(draw, cx, cy, r, rng) -> None:
+    """하이라이트가 크고 많을수록 귀엽고 흥분해 보인다 — 초롱초롱의 핵심."""
+    hr = r * rng.uniform(0.38, 0.48)
+    hx, hy = cx - r * 0.32, cy - r * 0.36
+    draw.ellipse([hx - hr, hy - hr, hx + hr, hy + hr], fill=(255, 255, 255, 255))
+    sr = r * rng.uniform(0.15, 0.22)
+    sx, sy = cx + r * 0.30, cy + r * 0.34
+    draw.ellipse([sx - sr, sy - sr, sx + sr, sy + sr], fill=(255, 255, 255, 225))
 
-    if kind == "closed_happy":  # ^ ^
-        pen_stroke(draw, _arc_points(lx, l_y + l_r * 0.7, l_r * 1.25, l_r * 1.1, 200, 340), rng, lw, 2)
-        pen_stroke(draw, _arc_points(rx_, r_y + r_r * 0.7, r_r * 1.25, r_r * 1.1, 200, 340), rng, lw, 2)
-    elif kind == "closed_flat":  # - -
-        pen_stroke(draw, [(lx - l_r * 1.2, l_y), (lx + l_r * 1.2, l_y)], rng, lw, 2)
-        pen_stroke(draw, [(rx_ - r_r * 1.2, r_y), (rx_ + r_r * 1.2, r_y)], rng, lw, 2)
+
+def _draw_eyes(draw, rng, lx, rx_, ey, base_r, kind: str, lw: int) -> None:
+    """짝눈이 매력 포인트라 좌우를 반드시 다르게 그린다."""
+    l_r = base_r * rng.uniform(0.86, 1.0)
+    r_r = base_r * rng.uniform(1.0, 1.18)
+    l_y = ey + rng.uniform(-base_r * 0.16, base_r * 0.10)
+    r_y = ey + rng.uniform(-base_r * 0.10, base_r * 0.16)
+
+    def sparkle(cx, cy, r):
+        """초롱초롱 — 큰 눈망울 + 큼직한 하이라이트."""
+        ball = wobbly_ellipse(cx, cy, r, r * rng.uniform(1.02, 1.16), rng, 36, 0.05)
+        draw.polygon(ball, fill=EYE_INK)
+        _eye_highlight(draw, cx, cy, r, rng)
+
+    def manic(cx, cy, r):
+        """광기 — 흰자를 크게 벌리고 동공을 작게, 위치도 제멋대로."""
+        white = wobbly_ellipse(cx, cy, r * 1.28, r * 1.42, rng, 40, 0.07)
+        draw.polygon(white, fill=(255, 255, 255, 255))
+        pen_stroke(draw, white, rng, max(2, lw - 1), 1, color=EYE_INK, drift=1.0)
+        px = cx + rng.uniform(-r * 0.40, r * 0.40)
+        py = cy + rng.uniform(-r * 0.40, r * 0.40)
+        pr = r * rng.uniform(0.34, 0.52)
+        draw.ellipse([px - pr, py - pr, px + pr, py + pr], fill=EYE_INK)
+        hr = pr * 0.42
+        draw.ellipse([px - hr - pr * 0.25, py - hr - pr * 0.25,
+                      px + hr - pr * 0.25, py + hr - pr * 0.25], fill=(255, 255, 255, 245))
+
+    if kind == "sparkle":
+        sparkle(lx, l_y, l_r)
+        sparkle(rx_, r_y, r_r)
+    elif kind == "manic":
+        manic(lx, l_y, l_r)
+        manic(rx_, r_y, r_r)
+    elif kind == "closed_happy":                     # ^ ^
+        pen_stroke(draw, _arc_points(lx, l_y + l_r * 0.6, l_r * 1.15, l_r * 1.0, 200, 340),
+                   rng, lw, 2, color=EYE_INK, drift=1.2)
+        pen_stroke(draw, _arc_points(rx_, r_y + r_r * 0.6, r_r * 1.15, r_r * 1.0, 200, 340),
+                   rng, lw, 2, color=EYE_INK, drift=1.2)
+    elif kind == "closed_flat":                      # - -
+        pen_stroke(draw, [(lx - l_r * 1.1, l_y), (lx + l_r * 1.1, l_y)],
+                   rng, lw, 2, color=EYE_INK, drift=1.2)
+        pen_stroke(draw, [(rx_ - r_r * 1.1, r_y), (rx_ + r_r * 1.1, r_y)],
+                   rng, lw, 2, color=EYE_INK, drift=1.2)
     elif kind == "wide":
-        pen_stroke(draw, wobbly_ellipse(lx, l_y, l_r * 1.5, l_r * 1.7, rng, 48, 0.1), rng, lw, 2)
-        pen_stroke(draw, wobbly_ellipse(rx_, r_y, r_r * 1.5, r_r * 1.7, rng, 48, 0.1), rng, lw, 2)
-        _dot(draw, lx, l_y, l_r * 0.8)
-        _dot(draw, rx_, r_y, r_r * 0.8)
+        manic(lx, l_y, l_r * 1.12)
+        manic(rx_, r_y, r_r * 1.12)
     elif kind == "half":
-        pen_stroke(draw, _arc_points(lx, l_y, l_r * 1.2, l_r, 180, 360), rng, lw, 2)
-        pen_stroke(draw, _arc_points(rx_, r_y, r_r * 1.2, r_r, 180, 360), rng, lw, 2)
-        _dot(draw, lx, l_y - l_r * 0.1, l_r * 0.65)
-        _dot(draw, rx_, r_y - r_r * 0.1, r_r * 0.65)
+        sparkle(lx, l_y, l_r * 0.9)
+        sparkle(rx_, r_y, r_r * 0.9)
+        for cx, cy, r in ((lx, l_y, l_r), (rx_, r_y, r_r)):
+            pen_stroke(draw, [(cx - r * 1.2, cy - r * 0.45), (cx + r * 1.2, cy - r * 0.55)],
+                       rng, max(2, lw), 2, color=EYE_INK, drift=1.0)
     elif kind == "side":
-        _dot(draw, lx + l_r * 0.8, l_y, l_r)
-        _dot(draw, rx_ + r_r * 0.8, r_y, r_r)
-    else:  # dots
-        _dot(draw, lx, l_y, l_r)
-        _dot(draw, rx_, r_y, r_r)
+        sparkle(lx + l_r * 0.5, l_y, l_r * 0.92)
+        sparkle(rx_ + r_r * 0.5, r_y, r_r * 0.92)
+    else:                                            # dots — 아주 작은 점눈
+        _dot(draw, lx, l_y, l_r * 0.55, color=EYE_INK)
+        _dot(draw, rx_, r_y, r_r * 0.55, color=EYE_INK)
 
 
 def _draw_mouth(draw, rng, cx, cy, w, kind: str, lw: int) -> None:
     if kind == "big_smile":
-        pen_stroke(draw, _arc_points(cx, cy - w * 0.3, w * 0.75, w * 0.8, 15, 165), rng, lw, 2)
+        pen_stroke(draw, _arc_points(cx, cy - w * 0.3, w * 0.75, w * 0.8, 15, 165), rng, lw, 2, color=MOUTH_INK, drift=1.2)
     elif kind == "smile":
-        pen_stroke(draw, _arc_points(cx, cy - w * 0.12, w * 0.5, w * 0.42, 25, 155), rng, lw, 2)
+        pen_stroke(draw, _arc_points(cx, cy - w * 0.12, w * 0.5, w * 0.42, 25, 155), rng, lw, 2, color=MOUTH_INK, drift=1.2)
     elif kind == "frown":
-        pen_stroke(draw, _arc_points(cx, cy + w * 0.45, w * 0.5, w * 0.42, 205, 335), rng, lw, 2)
+        pen_stroke(draw, _arc_points(cx, cy + w * 0.45, w * 0.5, w * 0.42, 205, 335), rng, lw, 2, color=MOUTH_INK, drift=1.2)
     elif kind == "flat":
-        pen_stroke(draw, [(cx - w * 0.35, cy), (cx + w * 0.35, cy + rng.uniform(-3, 3))], rng, lw, 2)
+        pen_stroke(draw, [(cx - w * 0.35, cy), (cx + w * 0.35, cy + rng.uniform(-3, 3))], rng, lw, 2, color=MOUTH_INK, drift=1.2)
     elif kind == "o":
-        pen_stroke(draw, wobbly_ellipse(cx, cy, w * 0.28, w * 0.4, rng, 40, 0.14), rng, lw, 2)
+        # 크고 진하게 채우면 얼굴에 구멍이 뚫린 것처럼 보인다
+        mouth_o = wobbly_ellipse(cx, cy, w * 0.20, w * 0.28, rng, 36, 0.12)
+        draw.polygon(mouth_o, fill=(196, 132, 130, 255))
+        pen_stroke(draw, mouth_o, rng, max(2, lw - 1), 1, color=MOUTH_INK, drift=0.8)
     elif kind == "wavy":
         pts = [
             (cx - w * 0.42 + w * 0.84 * (i / 24), cy + math.sin((i / 24) * math.tau * 1.6) * w * 0.22)
             for i in range(25)
         ]
-        pen_stroke(draw, pts, rng, lw, 2)
+        pen_stroke(draw, pts, rng, lw, 2, color=MOUTH_INK, drift=1.2)
     elif kind == "cat":  # ω
-        pen_stroke(draw, _arc_points(cx - w * 0.22, cy, w * 0.24, w * 0.28, 0, 175), rng, lw, 2)
-        pen_stroke(draw, _arc_points(cx + w * 0.22, cy, w * 0.24, w * 0.28, 5, 180), rng, lw, 2)
+        pen_stroke(draw, _arc_points(cx - w * 0.22, cy, w * 0.24, w * 0.28, 0, 175), rng, lw, 2, color=MOUTH_INK, drift=1.2)
+        pen_stroke(draw, _arc_points(cx + w * 0.22, cy, w * 0.24, w * 0.28, 5, 180), rng, lw, 2, color=MOUTH_INK, drift=1.2)
 
 
 _POSE_ANGLES = {
@@ -427,16 +490,15 @@ def _draw_nose(draw, rng, cx, cy, rx, kind: str, lw: int) -> None:
         s = rx * (0.075 if kind == "dot" else 0.11)
         # 외곽선 + 점을 겹쳐 그리면 뭉개진다. 통째로 칠한 뒤 한 획만 덧그린다.
         blob = wobbly_ellipse(cx, cy, s, s * 0.82, rng, 28, 0.16)
-        draw.polygon(blob, fill=INK)
-        pen_stroke(draw, blob, rng, max(2, lw - 1), 1)
+        draw.polygon(blob, fill=NOSE_DARK)
     elif kind == "triangle":
         s = rx * 0.085
         tri = _roughen([
             (cx - s, cy - s * 0.55), (cx + s, cy - s * 0.55), (cx, cy + s * 0.8),
             (cx - s, cy - s * 0.55),
         ], rng, rx * 0.014)
-        draw.polygon(tri, fill=INK)
-        pen_stroke(draw, tri, rng, max(2, lw - 1), 1)
+        draw.polygon(tri, fill=NOSE_PINK)
+        pen_stroke(draw, tri, rng, max(2, lw - 2), 1, color=_darken(NOSE_PINK, 0.30), drift=0.8)
 
 
 def _draw_beak(draw, rng, cx, cy, rx, lw: int) -> None:
@@ -458,7 +520,7 @@ def _draw_whiskers(draw, rng, cx, cy, rx, lw: int) -> None:
             y = cy + (i - 1) * rx * 0.10 + rng.uniform(-3, 3)
             x0 = cx + sx * rx * rng.uniform(0.34, 0.44)
             x1 = cx + sx * rx * rng.uniform(0.66, 0.80)
-            pen_stroke(draw, [(x0, y), (x1, y + rng.uniform(-8, 8))], rng, max(2, lw - 1), 1)
+            pen_stroke(draw, [(x0, y), (x1, y + rng.uniform(-8, 8))], rng, max(2, lw - 1), 1, color=BROW_INK, drift=1.0)
 
 
 def _draw_teeth(draw, rng, cx, cy, rx, lw: int) -> None:
@@ -471,7 +533,62 @@ def _draw_teeth(draw, rng, cx, cy, rx, lw: int) -> None:
             (x - w, cy), (x + w, cy), (x + w, cy + h), (x - w, cy + h), (x - w, cy),
         ], rng, rx * 0.010)
         draw.polygon(rect, fill=(255, 255, 255, 255))
-        pen_stroke(draw, rect, rng, max(2, lw - 1), 1)
+        pen_stroke(draw, rect, rng, max(2, lw - 1), 1, color=MOUTH_INK, drift=0.8)
+
+
+def _quad_bezier(p0, p1, p2, steps: int = 16) -> list[tuple[float, float]]:
+    """2차 베지에 곡선. 팔다리 뼈대를 휘게 만드는 데 쓴다."""
+    points = []
+    for i in range(steps + 1):
+        t = i / steps
+        u = 1.0 - t
+        points.append((
+            u * u * p0[0] + 2 * u * t * p1[0] + t * t * p2[0],
+            u * u * p0[1] + 2 * u * t * p1[1] + t * t * p2[1],
+        ))
+    return points
+
+
+def _ribbon(spine: list[tuple[float, float]], r0: float, r1: float,
+            cap_steps: int = 8) -> list[tuple[float, float]]:
+    """휜 뼈대를 따라 두께를 입혀 폴리곤으로 만든다.
+
+    직선 캡슐로 만든 팔다리는 뻣뻣하다. 곡선 뼈대에 살을 붙여야 자연스럽게
+    휘어진 팔다리·꼬리·귀가 나온다.
+    """
+    n = len(spine)
+    left, right = [], []
+    for i, (x, y) in enumerate(spine):
+        r = r0 + (r1 - r0) * (i / (n - 1))
+        if i == 0:
+            dx, dy = spine[1][0] - x, spine[1][1] - y
+        elif i == n - 1:
+            dx, dy = x - spine[-2][0], y - spine[-2][1]
+        else:
+            dx, dy = spine[i + 1][0] - spine[i - 1][0], spine[i + 1][1] - spine[i - 1][1]
+        length = math.hypot(dx, dy) or 1.0
+        nx, ny = -dy / length * r, dx / length * r
+        left.append((x + nx, y + ny))
+        right.append((x - nx, y - ny))
+
+    def cap(centre, tangent: float, radius: float, start_off: float):
+        """반원은 항상 진행 방향 *바깥쪽*으로 돌아야 한다.
+
+        반대로 돌면 폴리곤이 자기 자신을 가로질러 톱니처럼 삐죽해진다.
+        """
+        return [
+            (centre[0] + math.cos(tangent + start_off - math.pi * i / cap_steps) * radius,
+             centre[1] + math.sin(tangent + start_off - math.pi * i / cap_steps) * radius)
+            for i in range(cap_steps + 1)
+        ]
+
+    head_t = math.atan2(spine[-1][1] - spine[-2][1], spine[-1][0] - spine[-2][0])
+    tail_t = math.atan2(spine[1][1] - spine[0][1], spine[1][0] - spine[0][0])
+
+    return (left                                   # 한쪽 옆면 (시작 → 끝)
+            + cap(spine[-1], head_t, r1, math.pi / 2)   # 끝단 반원
+            + right[::-1]                          # 반대쪽 옆면 (끝 → 시작)
+            + cap(spine[0], tail_t, r0, -math.pi / 2))  # 뿌리쪽 반원
 
 
 def _capsule(p0, p1, r0: float, r1: float, steps: int = 12) -> list[tuple[float, float]]:
@@ -511,19 +628,24 @@ def _limb_shapes(rng, trunk, cx, cy, body_rx, body_ry, rx, ry,
         attach = (180 + lift * 22) if left_side else (0 - lift * 22)
         x0, y0 = _point_on(trunk, cx, cy, attach + rng.uniform(-8, 8))
 
-        length = rx * rng.uniform(0.40, 0.54)
+        length = rx * rng.uniform(0.42, 0.58)
         end = (x0 + math.cos(a) * length, y0 + math.sin(a) * length)
-        shapes.append(_capsule((x0, y0), end,
-                               rx * rng.uniform(0.115, 0.135),
-                               rx * rng.uniform(0.095, 0.115)))
+        # 뼈대를 옆으로 휜다. 직선이면 막대기처럼 뻣뻣하다.
+        bend = rx * rng.uniform(0.10, 0.26) * rng.choice([-1, 1])
+        mid = (x0 + math.cos(a) * length * 0.5 - math.sin(a) * bend,
+               y0 + math.sin(a) * length * 0.5 + math.cos(a) * bend)
+        shapes.append(_ribbon(_quad_bezier((x0, y0), mid, end),
+                              rx * rng.uniform(0.115, 0.135),
+                              rx * rng.uniform(0.085, 0.105)))
 
     for sx in (-1, 1):
         x0, y0 = _point_on(trunk, cx, cy, 90 + sx * rng.uniform(24, 42))
-        leg = ry * rng.uniform(0.14, 0.21)
-        foot = (x0 + sx * rng.uniform(1, 7), y0 + leg)
-        shapes.append(_capsule((x0, y0), foot,
-                               rx * rng.uniform(0.115, 0.135),
-                               rx * rng.uniform(0.105, 0.125)))
+        leg = ry * rng.uniform(0.16, 0.24)
+        foot = (x0 + sx * rng.uniform(4, 14), y0 + leg)
+        mid = (x0 + sx * rng.uniform(-4, 2), y0 + leg * 0.55)
+        shapes.append(_ribbon(_quad_bezier((x0, y0), mid, foot),
+                              rx * rng.uniform(0.115, 0.135),
+                              rx * rng.uniform(0.105, 0.125)))
     return shapes
 
 
@@ -535,25 +657,31 @@ def _tail_shape(rng, trunk, cx, cy, body_rx, body_ry, rx,
     if kind == "stub":
         return [wobbly_ellipse(base[0] + rx * 0.07, base[1],
                                rx * 0.11, rx * 0.10, rng, 28, 0.08)]
-    tip = (base[0] + rx * 0.20, base[1] - body_ry * 0.55)
-    return [_capsule(base, tip, rx * 0.085, rx * 0.055)]
+    # 말린 꼬리 — 위로 휘어 올라가게
+    tip = (base[0] + rx * rng.uniform(0.16, 0.26), base[1] - body_ry * rng.uniform(0.55, 0.85))
+    mid = (base[0] + rx * rng.uniform(0.28, 0.40), base[1] - body_ry * rng.uniform(0.05, 0.25))
+    return [_ribbon(_quad_bezier(base, mid, tip), rx * 0.085, rx * 0.05)]
 
 
 def _draw_extras(draw, rng, cx, cy, rx, ry, extras: list[str], lw: int) -> None:
     for extra in extras:
         if extra == "heart":
             hx, hy = cx + rx * rng.uniform(0.80, 1.05), cy - ry * rng.uniform(0.95, 1.20)
-            heart = _heart_points(hx, hy, rx * rng.uniform(0.34, 0.44))
-            pen_stroke(draw, _roughen(heart, rng, rx * 0.035), rng, lw, 2)
+            heart = _roughen(_heart_points(hx, hy, rx * rng.uniform(0.34, 0.44)),
+                             rng, rx * 0.030)
+            draw.polygon(heart, fill=HEART_FILL)
+            pen_stroke(draw, heart, rng, max(2, lw - 1), 1, color=HEART_LINE, drift=1.0)
         elif extra == "tear":
             tx = cx - rx * rng.uniform(0.48, 0.60)
             ty = cy + ry * rng.uniform(0.04, 0.18)
-            drop = _drop_points(tx, ty, rx * 0.19, rx * 0.34)
-            pen_stroke(draw, _roughen(drop, rng, rx * 0.022), rng, lw, 2)
+            drop = _roughen(_drop_points(tx, ty, rx * 0.19, rx * 0.34), rng, rx * 0.018)
+            draw.polygon(drop, fill=DROP_FILL)
+            pen_stroke(draw, drop, rng, max(2, lw - 1), 1, color=DROP_LINE, drift=1.0)
         elif extra == "sweat":
             sx_, sy_ = cx + rx * rng.uniform(0.72, 0.90), cy - ry * rng.uniform(0.42, 0.60)
-            drop = _drop_points(sx_, sy_, rx * 0.20, rx * 0.36)
-            pen_stroke(draw, _roughen(drop, rng, rx * 0.022), rng, lw, 2)
+            drop = _roughen(_drop_points(sx_, sy_, rx * 0.20, rx * 0.36), rng, rx * 0.018)
+            draw.polygon(drop, fill=DROP_FILL)
+            pen_stroke(draw, drop, rng, max(2, lw - 1), 1, color=DROP_LINE, drift=1.0)
         elif extra == "blush":
             for sx in (-1, 1):
                 bx = cx + sx * rx * rng.uniform(0.50, 0.64)
@@ -561,31 +689,37 @@ def _draw_extras(draw, rng, cx, cy, rx, ry, extras: list[str], lw: int) -> None:
                 for i in range(3):
                     yy = by + (i - 1) * rx * 0.075
                     pen_stroke(draw, [(bx - rx * 0.105, yy), (bx + rx * 0.105, yy)], rng,
-                               max(2, lw - 1), 1, color=(232, 132, 145, 255), drift=1.2)
+                               max(2, lw - 1), 1, color=BLUSH_COLOR, drift=1.2)
         elif extra == "sparkle":
             for _ in range(3):
                 px = cx + rng.uniform(-rx * 1.3, rx * 1.3)
                 py = cy - ry * rng.uniform(0.70, 1.25)
-                s = rx * rng.uniform(0.08, 0.13)
-                pen_stroke(draw, [(px - s, py), (px + s, py)], rng, lw, 1)
-                pen_stroke(draw, [(px, py - s), (px, py + s)], rng, lw, 1)
+                s = rx * rng.uniform(0.09, 0.15)
+                pen_stroke(draw, [(px - s, py), (px + s, py)], rng, lw, 1,
+                           color=SPARKLE_COLOR, drift=1.0)
+                pen_stroke(draw, [(px, py - s), (px, py + s)], rng, lw, 1,
+                           color=SPARKLE_COLOR, drift=1.0)
         elif extra == "anger":
             ax_, ay_ = cx + rx * rng.uniform(0.55, 0.70), cy - ry * rng.uniform(0.55, 0.70)
             s = rx * 0.15
-            pen_stroke(draw, [(ax_ - s, ay_ - s), (ax_ + s, ay_ + s)], rng, lw, 1)
-            pen_stroke(draw, [(ax_ + s, ay_ - s), (ax_ - s, ay_ + s)], rng, lw, 1)
+            pen_stroke(draw, [(ax_ - s, ay_ - s), (ax_ + s, ay_ + s)], rng, lw, 1,
+                       color=ANGER_COLOR, drift=1.0)
+            pen_stroke(draw, [(ax_ + s, ay_ - s), (ax_ - s, ay_ + s)], rng, lw, 1,
+                       color=ANGER_COLOR, drift=1.0)
         elif extra == "brows":
             for sx, tilt in ((-1, 1), (1, -1)):
                 bx = cx + sx * rx * 0.36
                 by = cy - ry * rng.uniform(0.40, 0.48)
-                pen_stroke(draw, [(bx - rx * 0.15, by - tilt * rx * 0.08),
-                                  (bx + rx * 0.15, by + tilt * rx * 0.08)], rng, lw, 2)
+                pen_stroke(draw, [(bx - rx * 0.17, by - tilt * rx * 0.10),
+                                  (bx + rx * 0.17, by + tilt * rx * 0.10)],
+                           rng, lw + 1, 2, color=BROW_INK, drift=1.2)
         elif extra == "zzz":  # 글자 대신 동그란 숨소리 방울
             bx, by = cx + rx * 0.85, cy - ry * 0.80
             for i in range(3):
                 r = rx * (0.045 + i * 0.035)
                 pen_stroke(draw, wobbly_ellipse(bx + i * rx * 0.22, by - i * ry * 0.17,
-                                                r, r, rng, 24, 0.16), rng, lw, 1)
+                                                r, r, rng, 24, 0.16), rng,
+                           max(2, lw - 1), 1, color=BROW_INK, drift=1.0)
 
 
 # --------------------------------------------------------------------------
@@ -593,32 +727,32 @@ def _draw_extras(draw, rng, cx, cy, rx, ry, extras: list[str], lw: int) -> None:
 # --------------------------------------------------------------------------
 
 EXPRESSIONS: dict[str, dict] = {
-    "안녕":     {"eyes": "dots", "mouth": "smile", "pose": "wave"},
+    "안녕":     {"eyes": "sparkle", "mouth": "smile", "pose": "wave"},
     "반가워":   {"eyes": "closed_happy", "mouth": "big_smile", "pose": "wave"},
     "기쁨":     {"eyes": "closed_happy", "mouth": "big_smile", "pose": "up", "extras": ["sparkle"]},
     "슬픔":     {"eyes": "half", "mouth": "frown", "pose": "down", "extras": ["tear"]},
-    "화남":     {"eyes": "dots", "mouth": "wavy", "pose": "hip", "extras": ["anger", "brows"]},
-    "놀람":     {"eyes": "wide", "mouth": "o", "pose": "out"},
+    "화남":     {"eyes": "manic", "mouth": "wavy", "pose": "hip", "extras": ["anger", "brows"]},
+    "놀람":     {"eyes": "manic", "mouth": "o", "pose": "out"},
     "사랑해":   {"eyes": "closed_happy", "mouth": "cat", "pose": "hug", "extras": ["heart", "blush"]},
     "고마워":   {"eyes": "closed_happy", "mouth": "smile", "pose": "hug"},
     "미안해":   {"eyes": "half", "mouth": "frown", "pose": "down"},
     "축하해":   {"eyes": "closed_happy", "mouth": "big_smile", "pose": "up", "extras": ["sparkle"]},
-    "화이팅":   {"eyes": "dots", "mouth": "big_smile", "pose": "fist"},
+    "화이팅":   {"eyes": "sparkle", "mouth": "big_smile", "pose": "fist"},
     "웃김":     {"eyes": "closed_happy", "mouth": "big_smile", "pose": "belly", "extras": ["tear"]},
     "심심함":   {"eyes": "half", "mouth": "flat", "pose": "down"},
     "졸림":     {"eyes": "closed_flat", "mouth": "o", "pose": "down", "extras": ["zzz"]},
     "배고픔":   {"eyes": "half", "mouth": "wavy", "pose": "belly"},
-    "당황":     {"eyes": "wide", "mouth": "o", "pose": "out", "extras": ["sweat"]},
+    "당황":     {"eyes": "manic", "mouth": "o", "pose": "out", "extras": ["sweat"]},
     "부끄러움": {"eyes": "closed_happy", "mouth": "smile", "pose": "hug", "extras": ["blush"]},
-    "자신감":   {"eyes": "dots", "mouth": "smile", "pose": "hip", "extras": ["sparkle"]},
+    "자신감":   {"eyes": "sparkle", "mouth": "smile", "pose": "hip", "extras": ["sparkle"]},
     "실망":     {"eyes": "half", "mouth": "frown", "pose": "down"},
-    "긴장":     {"eyes": "wide", "mouth": "wavy", "pose": "cross", "extras": ["sweat"]},
+    "긴장":     {"eyes": "manic", "mouth": "wavy", "pose": "cross", "extras": ["sweat"]},
     "감동":     {"eyes": "closed_happy", "mouth": "smile", "pose": "hug", "extras": ["tear"]},
-    "궁금함":   {"eyes": "dots", "mouth": "flat", "pose": "hip"},
+    "궁금함":   {"eyes": "sparkle", "mouth": "flat", "pose": "hip"},
     "지침":     {"eyes": "closed_flat", "mouth": "frown", "pose": "down", "extras": ["sweat"]},
     "설렘":     {"eyes": "closed_happy", "mouth": "cat", "pose": "hug", "extras": ["heart", "blush"]},
     "만족":     {"eyes": "closed_happy", "mouth": "cat", "pose": "hip"},
-    "거절":     {"eyes": "dots", "mouth": "flat", "pose": "cross"},
+    "거절":     {"eyes": "manic", "mouth": "flat", "pose": "cross"},
     "수긍":     {"eyes": "closed_flat", "mouth": "smile", "pose": "down"},
     "눈치보기": {"eyes": "side", "mouth": "flat", "pose": "cross"},
     "신남":     {"eyes": "closed_happy", "mouth": "big_smile", "pose": "up", "extras": ["sparkle"]},
@@ -627,7 +761,8 @@ EXPRESSIONS: dict[str, dict] = {
     "잘자":     {"eyes": "closed_flat", "mouth": "smile", "pose": "down", "extras": ["zzz"]},
 }
 
-_EYE_KINDS = ["dots", "closed_happy", "closed_flat", "wide", "half", "side"]
+_EYE_KINDS = ["sparkle", "manic", "dots", "closed_happy", "closed_flat",
+              "wide", "half", "side"]
 _MOUTH_KINDS = ["smile", "big_smile", "frown", "flat", "o", "wavy", "cat"]
 _POSES = list(_POSE_ANGLES)
 
@@ -778,7 +913,7 @@ def render_character(
 
     # 귀·팔다리·꼬리에만 한 톤 낮춘 평면 명암. 볼은 얼굴의 일부라 제외한다
     # (칠하면 얼굴에 회색 원 두 개를 붙인 꼴이 된다).
-    shade = _darken(spec_char.color, 0.09)
+    shade = _darken(spec_char.color, 0.075)
     appendages = ears + limbs + tail
     app_mask = Image.new("L", (S, S), 0)
     app_draw = ImageDraw.Draw(app_mask)
@@ -823,7 +958,7 @@ def render_character(
     _draw_eyes(draw, rng,
                cx - eye_dx * rng.uniform(0.94, 1.06),
                cx + eye_dx * rng.uniform(0.94, 1.06),
-               eye_y, S * 0.0085 * spec_char.eye_scale, face.get("eyes", "dots"), lw)
+               eye_y, S * 0.021 * spec_char.eye_scale, face.get("eyes", "sparkle"), lw)
 
     if spec_char.nose == "beak":
         _draw_beak(draw, rng, cx, (nose_y + mouth_y) * 0.5, head_rx, lw)

@@ -19,8 +19,9 @@ def test_pen_doodle_encodes_the_fixed_rules():
     """STYLE_GUIDE의 고정 규칙이 프롬프트에 실제로 들어있는지 잠근다."""
     prompt = prompts.STYLE_PRESETS["pen_doodle"]
     # 눈: 아주 작게, 위쪽에 좁게
-    assert "tiny solid black dot eyes" in prompt
+    assert "large bright highlights" in prompt
     assert "high on the face" in prompt
+    assert "manic" in prompt
     # 중안부: 눈과 입 사이를 멀리
     assert "long midface" in prompt
     # 선: 하나로 이어진 실루엣
@@ -29,11 +30,13 @@ def test_pen_doodle_encodes_the_fixed_rules():
     assert "asymmetric" in prompt
     # 채색: 깔끔한 평면
     assert "clean flat" in prompt
+    # 하트·눈물은 색이 있어야 읽힌다
+    assert "in colour" in prompt
 
 
 def test_sloppy_styles_suppress_polished_output():
     negative = prompts.build_prompt("기쁨", style="pen_doodle").negative_prompt
-    for banned in ("big eyes", "eye highlights", "eyelashes", "gradient", "shading",
+    for banned in ("dead flat eyes", "eyelashes", "gradient", "shading",
                    "symmetrical", "short midface", "separate outlines around each body part"):
         assert banned in negative
 
