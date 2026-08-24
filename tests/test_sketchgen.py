@@ -98,8 +98,8 @@ def test_lineup_covers_every_animal_when_it_fits():
 
 def test_every_archetype_declares_an_ear_and_nose():
     for animal, archetype in sketchgen.ANIMAL_ARCHETYPES.items():
-        assert archetype["ear"] in ("round", "tiny", "long", "pointy", "floppy", "none"), animal
-        assert archetype["nose"] in ("dot", "big", "triangle", "beak", "none"), animal
+        assert archetype["ear"] in sketchgen.EAR_KINDS, animal
+        assert archetype["nose"] in sketchgen.NOSE_KINDS, animal
 
 
 def test_make_character_follows_the_archetype():
@@ -276,3 +276,114 @@ def test_shape_is_not_wildly_distorted():
         h = rows.max() - rows.min()
         w = cols.max() - cols.min()
         assert 0.45 < w / h < 2.2, f"{animal}: 실루엣이 지나치게 일그러졌다 ({w}x{h})"
+
+
+# --------------------------------------------------------------------------
+# 그림체 (DrawStyle) — 캐릭터와 직교하는 축
+# --------------------------------------------------------------------------
+
+def _dominant_body_tone(img: Image.Image):
+    arr = np.array(img.convert("RGBA"))
+    body = arr[arr[:, :, 3] > 200][:, :3]
+    values, counts = np.unique(body, axis=0, return_counts=True)
+    return tuple(values[counts.argmax()])
+
+
+@pytest.mark.parametrize("style", sketchgen.DRAW_STYLE_NAMES)
+def test_every_draw_style_renders(style):
+    char = sketchgen.make_character(2, animal="guineapig")
+    img = sketchgen.render_character("안녕", size=160, seed=3, character=char, draw_style=style)
+    assert img.size == (160, 160)
+    assert len(_visible(img)) > 0
+
+
+def test_draw_styles_actually_look_different():
+    """그림체를 바꿨는데 결과가 같다면 축이 연결되지 않은 것이다."""
+    char = sketchgen.make_character(2, animal="guineapig")
+    renders = {
+        style: np.array(sketchgen.render_character(
+            "안녕", size=160, seed=3, character=char, draw_style=style))
+        for style in sketchgen.DRAW_STYLE_NAMES
+    }
+    for a, b in zip(sketchgen.DRAW_STYLE_NAMES, sketchgen.DRAW_STYLE_NAMES[1:]):
+        assert not np.array_equal(renders[a], renders[b]), f"{a} == {b}"
+
+
+def test_chunky_draws_a_heavier_outline_than_doodle():
+    char = sketchgen.make_character(2, animal="bear")
+
+    def ink_pixels(style):
+        arr = np.array(sketchgen.render_character(
+            "안녕", size=200, seed=4, character=char, draw_style=style).convert("RGBA"))
+        visible = arr[arr[:, :, 3] > 200][:, :3]
+        lum = visible @ np.array([0.2126, 0.7152, 0.0722])
+        return int((lum < 90).sum())
+
+    assert ink_pixels("chunky") > ink_pixels("doodle") * 1.3
+
+
+def test_mono_style_drains_the_body_colour():
+    char = sketchgen.make_character(2, animal="guineapig", color=(255, 176, 186, 255))
+    coloured = _dominant_body_tone(
+        sketchgen.render_character("안녕", size=180, seed=4, character=char, draw_style="doodle"))
+    mono = _dominant_body_tone(
+        sketchgen.render_character("안녕", size=180, seed=4, character=char, draw_style="mono"))
+    # 원본은 분홍, mono는 거의 무채색이어야 한다
+    assert max(coloured) - min(coloured) > 30
+    assert max(mono) - min(mono) < 20
+
+
+def test_sticker_style_adds_a_white_border():
+    char = sketchgen.make_character(2, animal="guineapig", color=(168, 216, 255, 255))
+    plain = sketchgen.render_character("안녕", size=200, seed=4, character=char, draw_style="doodle")
+    sticker = sketchgen.render_character("안녕", size=200, seed=4, character=char, draw_style="sticker")
+
+    def near_white(img):
+        arr = np.array(img.convert("RGBA"))
+        vis = arr[arr[:, :, 3] > 200][:, :3]
+        return int((vis.min(axis=1) > 245).sum())
+
+    # 실루엣을 부풀린 흰 테두리가 붙으므로 흰 픽셀이 확실히 늘어난다
+    assert near_white(sticker) > near_white(plain) + 500
+
+
+def test_unknown_draw_style_is_rejected():
+    with pytest.raises(KeyError):
+        sketchgen.render_character("안녕", size=100, draw_style="does_not_exist")
+
+
+def test_style_sheet_grid_shape():
+    char = sketchgen.make_character(2, animal="guineapig")
+    sheet, used = sketchgen.render_style_sheet(char, ["안녕", "기쁨"], cell=80, seed=1)
+    assert used == sketchgen.DRAW_STYLE_NAMES
+    assert sheet.size == (80 * 2, 80 * len(used))
+
+
+def test_style_sheet_rejects_bad_input():
+    char = sketchgen.make_character(2, animal="guineapig")
+    with pytest.raises(ValueError):
+        sketchgen.render_style_sheet(char, [], cell=80)
+    with pytest.raises(ValueError):
+        sketchgen.render_style_sheet(char, ["안녕"], cell=80, styles=["nope"])
+
+
+# --------------------------------------------------------------------------
+# 기니피그
+# --------------------------------------------------------------------------
+
+def test_guineapig_archetype_features():
+    char = sketchgen.make_character(2, animal="guineapig")
+    assert char.ear == "petal"          # 머리 옆에 낮게 붙은 꽃잎 귀
+    assert char.tail == "none"          # 꼬리가 없다
+    assert char.neckless and char.patch # 목이 없는 체형 + 털 얼룩
+    assert char.teeth and char.whiskers
+
+
+def test_guineapig_is_wider_than_tall():
+    """기니피그는 낮고 넓은 체형이라 가로가 세로보다 길어야 한다."""
+    char = sketchgen.make_character(2, animal="guineapig")
+    img = sketchgen.render_character("안녕", size=300, seed=4, character=char)
+    alpha = np.array(img.convert("RGBA"))[:, :, 3] > 128
+    rows = np.where(alpha.any(axis=1))[0]
+    cols = np.where(alpha.any(axis=0))[0]
+    assert (cols.max() - cols.min()) > (rows.max() - rows.min())

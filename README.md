@@ -13,8 +13,9 @@ pip install -e .
 kakao-emoticon-gen samples --mode lineup --count 7 --out lineup.png
 ```
 
-동물형 7종(곰 · 햄스터 · 토끼 · 고양이 · 강아지 · 오리 · 물범)을 지원하며,
-종마다 귀 · 코 · 주둥이 · 볼주머니 · 수염 · 앞니 조합이 다릅니다.
+동물형 8종(곰 · 햄스터 · 토끼 · 고양이 · 강아지 · 오리 · 물범 · **기니피그**)을
+지원하며, 종마다 귀 · 코 · 주둥이 · 볼주머니 · 수염 · 앞니 조합이 다릅니다.
+그림체는 `doodle` / `chunky` / `pastel` / `sticker` / `mono` 5종 중 고릅니다.
 움직이는 이모티콘(GIF)도 `animate` 명령으로 뽑을 수 있습니다.
 
 > ⚠️ **면책 조항**: 이 도구는 제작 과정을 자동화/보조할 뿐입니다.
@@ -154,8 +155,11 @@ python -m kakao_emoticon_gen.cli checklist # 모듈 실행
 ## 3. 사용법
 
 ```bash
-# 0) 동물 캐릭터 후보 7종을 같은 표정으로 뽑아 디자인 비교
-python -m kakao_emoticon_gen.cli samples --mode lineup --count 7 --out output/lineup.png
+# 0) 동물 캐릭터 후보 8종을 같은 표정으로 뽑아 디자인 비교
+python -m kakao_emoticon_gen.cli samples --mode lineup --count 8 --out output/lineup.png
+
+# 0-a) 한 캐릭터를 그림체별로 비교 (행 = 그림체, 열 = 표정)
+python -m kakao_emoticon_gen.cli samples --mode styles --animal guineapig --character-seed 2
 
 # 0-1) 마음에 드는 후보의 seed로 32컷 표정 세트 전체를 미리보기
 python -m kakao_emoticon_gen.cli samples --mode expressions \
@@ -213,7 +217,8 @@ python -m kakao_emoticon_gen.cli list-emotions
 | `--jitter` | AI 티 제거용 손떨림 강도(픽셀, 기본 1.5). `0`이면 끕니다 |
 | `--fit` | `canvas`는 원본 프레이밍을 유지해 **세트 내 캐릭터 크기를 일정하게** 합니다. 기본값 `content`는 컷마다 내용물에 꽉 차게 확대하므로, 팔을 벌린 컷의 몸통이 작아져 32컷 통일감이 깨집니다 |
 | `--character-seed` | `sketch` 백엔드의 캐릭터 디자인. **세트 내내 같은 값**을 써야 같은 캐릭터가 됩니다 |
-| `--animal` | 동물 종류를 직접 고릅니다 (`bear`/`hamster`/`rabbit`/`cat`/`dog`/`duck`/`seal`) |
+| `--animal` | 동물 종류 (`bear`/`hamster`/`rabbit`/`cat`/`dog`/`duck`/`seal`/`guineapig`) |
+| `--draw-style` | 그림체 (`doodle`/`chunky`/`pastel`/`sticker`/`mono`). 세트 내내 같은 값을 쓰세요 |
 
 결과물:
 

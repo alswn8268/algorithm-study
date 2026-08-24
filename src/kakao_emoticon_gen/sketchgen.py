@@ -18,9 +18,12 @@ docs/STYLE_GUIDE.md의 고정 규칙을 그대로 코드로 옮긴 것이다. �
 - 팔다리: 직선 캡슐이 아니라 휜 뼈대(_ribbon)에 살을 붙인다. 직선이면
           막대기처럼 뻣뻣하다
 
-**캐릭터 정체성(CharacterSpec)과 손떨림(seed)은 분리돼 있다.** 32컷 한 세트는
-같은 CharacterSpec을 공유해야 "같은 캐릭터"가 되고, 컷마다 seed만 달라져서
-"같은 사람이 그때그때 대충 그린" 흔들림이 생긴다.
+**세 축이 서로 독립이다.**
+  - CharacterSpec : 누구인가 (종·색·이목구비) — 세트 내내 고정
+  - DrawStyle     : 어떤 붓으로 그렸나 — 세트 내내 고정
+  - seed          : 그때그때의 손떨림 — 컷마다 변함
+
+셋 중 앞의 둘이 흔들리면 "같은 캐릭터의 한 세트"가 아니게 된다.
 
 용도는 두 가지다.
 1) GPU/API 없이 파이프라인 전체를 실제 그림으로 검증
@@ -70,6 +73,60 @@ _SUPERSAMPLE = 2
 
 
 # --------------------------------------------------------------------------
+# 그림체 — 같은 캐릭터를 어떤 붓으로 그리느냐
+# --------------------------------------------------------------------------
+#
+# 카카오 이모티콘은 "단순하고 귀여운" 범위 안에서 그림체가 갈린다.
+# 실사·극화체는 심사에서 탈락 가능성이 높아 후보에 두지 않는다.
+
+@dataclass(frozen=True)
+class DrawStyle:
+    """캐릭터 생김새(CharacterSpec)와 직교하는 '붓' 설정."""
+    name: str
+    line_width: float = 1.0      # 외곽선 굵기 배수
+    line_color: tuple[int, int, int, int] = INK
+    wobble: float = 1.0          # 손떨림 배수
+    saturation: float = 1.0      # 1보다 크면 색이 진해진다
+    shade: float = 0.075         # 부품 명암 강도 (0이면 평평하게)
+    inner_lines: bool = True     # 부품 안쪽 구분선
+    white_border: float = 0.0    # 실루엣 바깥 흰 테두리 두께 (스티커 컷)
+    blush: bool = False          # 볼터치를 항상 넣는다
+
+
+DRAW_STYLES: dict[str, DrawStyle] = {
+    # 왼손으로 그린 듯 하찮고 귀여운 낙서체 — 현재 주류
+    "doodle": DrawStyle("doodle", line_width=1.0, wobble=1.0, saturation=1.0),
+    # 굵은 선 + 또렷한 색. 작게 줄여도 형태가 살아남는다
+    "chunky": DrawStyle("chunky", line_width=2.1, wobble=0.5, saturation=1.25, shade=0.10),
+    # 파스텔 톤. 선을 연하게 깔고 볼터치로 귀여움을 만든다
+    "pastel": DrawStyle("pastel", line_width=0.8, line_color=(150, 122, 116, 255),
+                        wobble=0.7, saturation=0.72, shade=0.05, blush=True),
+    # 스티커 컷 — 실루엣 바깥에 흰 테두리
+    "sticker": DrawStyle("sticker", line_width=1.5, wobble=0.6, saturation=1.15,
+                         shade=0.09, white_border=0.030),
+    # 선화 위주. 채색을 거의 하지 않는다
+    "mono": DrawStyle("mono", line_width=1.2, wobble=1.1, saturation=0.0,
+                      shade=0.0, inner_lines=True),
+}
+
+DRAW_STYLE_NAMES = list(DRAW_STYLES)
+
+
+def _saturate(color: tuple[int, int, int, int], amount: float) -> tuple[int, int, int, int]:
+    """1보다 크면 채도를 올리고, 0이면 흰색에 가깝게 뺀다."""
+    r, g, b, a = color
+    grey = (r + g + b) / 3.0
+    if amount <= 0:
+        return (252, 250, 246, a)
+    return (
+        max(0, min(255, int(grey + (r - grey) * amount))),
+        max(0, min(255, int(grey + (g - grey) * amount))),
+        max(0, min(255, int(grey + (b - grey) * amount))),
+        a,
+    )
+
+
+# --------------------------------------------------------------------------
 # 캐릭터 정체성 — 한 세트 안에서는 절대 바뀌면 안 되는 값들
 # --------------------------------------------------------------------------
 
@@ -91,6 +148,8 @@ class CharacterSpec:
     whiskers: bool = False
     teeth: bool = False          # 앞니
     tail: str = "none"           # stub | curl | none
+    patch: bool = False          # 등에 난 털색 얼룩 (기니피그 등 얼룩 있는 종)
+    neckless: bool = False       # 머리와 몸통이 거의 붙어 목이 없는 체형
     name: str = "character"
 
 
@@ -106,15 +165,25 @@ ANIMAL_ARCHETYPES: dict[str, dict] = {
     "dog":     {"ear": "floppy", "nose": "big",      "muzzle": True,  "tail": "curl"},
     "duck":    {"ear": "none",   "nose": "beak",     "muzzle": False},
     "seal":    {"ear": "none",   "nose": "dot",      "muzzle": True,  "whiskers": True},
+    # 기니피그: 목이 없다시피 하고 몸이 낮고 넓다. 귀는 작고 옆으로 처진
+    # 꽃잎 모양, 꼬리는 없고, 앞니와 수염이 보이며 등에 털 얼룩이 있다.
+    "guineapig": {"ear": "petal", "nose": "dot", "muzzle": True, "whiskers": True,
+                  "teeth": True, "patch": True, "neckless": True},
 }
 
 ANIMALS = list(ANIMAL_ARCHETYPES)
+
+# 그릴 수 있는 부품 종류. 테스트가 이 목록을 참조하므로 새 부품을 그리도록
+# 만들었는데 여기에 안 넣으면 바로 걸린다.
+EAR_KINDS = ["round", "tiny", "long", "pointy", "floppy", "petal", "none"]
+NOSE_KINDS = ["dot", "big", "triangle", "beak", "none"]
 
 # 종별로 어울리는 체형. 토끼는 갸름하고 물범은 옆으로 퍼진다.
 _BODY_HINTS: dict[str, tuple[float, float]] = {
     "rabbit": (0.245, 0.290),
     "seal": (0.300, 0.240),
     "duck": (0.265, 0.275),
+    "guineapig": (0.300, 0.250),
 }
 
 
@@ -147,6 +216,8 @@ def make_character(
         whiskers=archetype.get("whiskers", False),
         teeth=archetype.get("teeth", False),
         tail=archetype.get("tail", "none"),
+        patch=archetype.get("patch", False),
+        neckless=archetype.get("neckless", False),
         name=name or f"{kind}{seed}",
     )
 
@@ -475,6 +546,11 @@ def _ear_shapes(rng, cx, cy, rx, ry, kind: str) -> list[list[tuple[float, float]
                 (ex - w, ey + h * 0.55), (ex + sx * w * 0.25, ey - h * 0.75),
                 (ex + w, ey + h * 0.55), (ex - w, ey + h * 0.55),
             ], rng, rx * 0.03))
+        elif kind == "petal":     # 기니피그 — 머리 옆에 낮게 붙은 꽃잎 모양 귀
+            ex = cx + sx * rx * rng.uniform(0.92, 1.04)
+            ey = cy - ry * rng.uniform(0.34, 0.50)
+            shapes.append(wobbly_ellipse(ex, ey, rx * 0.26 * wiggle, ry * 0.30 * wiggle,
+                                         rng, 40, 0.10, tilt=sx * rng.uniform(0.30, 0.55)))
         elif kind == "floppy":    # 강아지 — 옆으로 축 늘어진 귀
             ex = cx + sx * rx * rng.uniform(0.72, 0.84)
             ey = cy - ry * rng.uniform(0.18, 0.32)
@@ -611,7 +687,7 @@ def _darken(color: tuple[int, int, int, int], amount: float) -> tuple[int, int, 
 
 
 def _limb_shapes(rng, trunk, cx, cy, body_rx, body_ry, rx, ry,
-                 pose: str, limb_delta: float = 0.0) -> list[list[tuple[float, float]]]:
+                 pose: str, limb_delta: float = 0.0, limb_scale: float = 1.0) -> list[list[tuple[float, float]]]:
     """팔 두 짝 + 다리 두 짝을 캡슐 폴리곤으로 만든다.
 
     팔은 머리가 아니라 **몸통**에서 나와야 동물로 보인다.
@@ -628,7 +704,7 @@ def _limb_shapes(rng, trunk, cx, cy, body_rx, body_ry, rx, ry,
         attach = (180 + lift * 22) if left_side else (0 - lift * 22)
         x0, y0 = _point_on(trunk, cx, cy, attach + rng.uniform(-8, 8))
 
-        length = rx * rng.uniform(0.42, 0.58)
+        length = rx * rng.uniform(0.42, 0.58) * limb_scale
         end = (x0 + math.cos(a) * length, y0 + math.sin(a) * length)
         # 뼈대를 옆으로 휜다. 직선이면 막대기처럼 뻣뻣하다.
         bend = rx * rng.uniform(0.10, 0.26) * rng.choice([-1, 1])
@@ -640,7 +716,7 @@ def _limb_shapes(rng, trunk, cx, cy, body_rx, body_ry, rx, ry,
 
     for sx in (-1, 1):
         x0, y0 = _point_on(trunk, cx, cy, 90 + sx * rng.uniform(24, 42))
-        leg = ry * rng.uniform(0.16, 0.24)
+        leg = ry * rng.uniform(0.16, 0.24) * limb_scale
         foot = (x0 + sx * rng.uniform(4, 14), y0 + leg)
         mid = (x0 + sx * rng.uniform(-4, 2), y0 + leg * 0.55)
         shapes.append(_ribbon(_quad_bezier((x0, y0), mid, foot),
@@ -834,12 +910,18 @@ DEFAULT_CHARACTER = CharacterSpec(
 def render_character(
     keyword: str, size: int = 360, seed: int | None = None,
     character: CharacterSpec | None = None, motion: Motion | None = None,
+    draw_style: str | DrawStyle = "doodle",
 ) -> Image.Image:
-    """감정 키워드 하나를 발그림 캐릭터 한 컷으로 그린다.
+    """감정 키워드 하나를 캐릭터 한 컷으로 그린다.
 
-    `character`가 같으면 같은 캐릭터, `seed`가 다르면 손떨림만 달라진다.
+    세 축이 서로 독립이다.
+      - `character` : 누구인가 (종·색·이목구비) — 세트 내내 고정
+      - `draw_style`: 어떤 붓으로 그렸나 — 세트 내내 고정
+      - `seed`      : 그때그때의 손떨림 — 컷마다 달라짐
     """
     spec_char = character or DEFAULT_CHARACTER
+    brush = DRAW_STYLES[draw_style] if isinstance(draw_style, str) else draw_style
+    body_color = _saturate(spec_char.color, brush.saturation)
     move = motion or Motion()
     rng = random.Random(_seed_for(keyword, seed))
     face = EXPRESSIONS.get(keyword) or _fallback_expression(keyword)
@@ -847,7 +929,7 @@ def render_character(
     S = size * _SUPERSAMPLE
     canvas = Image.new("RGBA", (S, S), (0, 0, 0, 0))
     draw = ImageDraw.Draw(canvas)
-    lw = max(3, int(S * 0.0055))
+    lw = max(3, int(S * 0.0055 * brush.line_width))
 
     # 중심과 기울기만 흔들고, 크기 비율은 캐릭터 정체성이라 고정
     cx = S * 0.5 + rng.uniform(-S * 0.015, S * 0.015)
@@ -866,21 +948,29 @@ def render_character(
     # --- 1) 머리 + 몸통을 나눠 동물 형태를 만든다 --------------------
     # 통짜 원 하나면 감자에 혹이 붙은 모양이 된다. 큰 머리 + 작은 몸통이
     # 겹쳐야 비로소 '동물'로 읽힌다.
-    head_cy = cy - ry * 0.26
-    head_rx, head_ry = rx * 0.98, ry * 0.86
-    body_cy = cy + ry * 0.62
-    body_rx, body_ry = rx * 0.76, ry * 0.52
+    if spec_char.neckless:
+        # 기니피그처럼 목이 없는 체형 — 머리와 몸통을 크게 겹치고 폭을 비슷하게
+        head_cy = cy - ry * 0.34
+        head_rx, head_ry = rx * 0.80, ry * 0.64
+        body_cy = cy + ry * 0.34
+        body_rx, body_ry = rx * 0.97, ry * 0.62
+    else:
+        head_cy = cy - ry * 0.26
+        head_rx, head_ry = rx * 0.98, ry * 0.86
+        body_cy = cy + ry * 0.62
+        body_rx, body_ry = rx * 0.76, ry * 0.52
 
     # 왜곡은 약하게. 과하면 찌그러진 덩어리로 보인다.
     head = wobbly_ellipse(cx, head_cy, head_rx, head_ry, rng,
-                          96, rng.uniform(0.018, 0.032), tilt=tilt)
+                          96, rng.uniform(0.018, 0.032) * brush.wobble, tilt=tilt)
     trunk = wobbly_ellipse(cx + rng.uniform(-rx * 0.03, rx * 0.03), body_cy,
-                           body_rx, body_ry, rng, 72, rng.uniform(0.020, 0.035),
+                           body_rx, body_ry, rng, 72, rng.uniform(0.020, 0.035) * brush.wobble,
                            tilt=tilt * 0.5, bulge=spec_char.bulge * 0.5)
     ears = _ear_shapes(rng, cx, head_cy, head_rx, head_ry, spec_char.ear)
 
     limbs = _limb_shapes(rng, trunk, cx, body_cy, body_rx, body_ry, rx, ry,
-                         face.get("pose", "down"), move.limb)
+                         face.get("pose", "down"), move.limb,
+                         limb_scale=0.66 if spec_char.neckless else 1.0)
     tail = _tail_shape(rng, trunk, cx, body_cy, body_rx, body_ry, rx, spec_char.tail)
 
     cheeks: list[list[tuple[float, float]]] = []
@@ -898,10 +988,15 @@ def render_character(
     sdraw = ImageDraw.Draw(silhouette)
     for poly in [head, trunk, *parts]:
         sdraw.polygon(poly, fill=255)
-    silhouette = wobble_mask(silhouette, rng, amount=S * 0.0015)
+    silhouette = wobble_mask(silhouette, rng, amount=S * 0.0015 * brush.wobble)
 
     # --- 3) 평면 채색 + 부품 명암 + 안쪽 구분선 ------------------------
-    canvas.paste(spec_char.color, (0, 0), silhouette)
+    if brush.white_border > 0:
+        # 스티커 컷 — 실루엣을 부풀려 흰 테두리를 먼저 깔아둔다
+        pad = max(3, int(S * brush.white_border) | 1)
+        canvas.paste((255, 255, 255, 255), (0, 0),
+                     silhouette.filter(ImageFilter.MaxFilter(pad)))
+    canvas.paste(body_color, (0, 0), silhouette)
 
     # 몸통·머리에 가려지는 부분은 칠하지도 긋지도 않는다.
     # 안 그러면 팔다리가 몸을 투과해 보이는 X-ray 그림이 된다.
@@ -913,31 +1008,44 @@ def render_character(
 
     # 귀·팔다리·꼬리에만 한 톤 낮춘 평면 명암. 볼은 얼굴의 일부라 제외한다
     # (칠하면 얼굴에 회색 원 두 개를 붙인 꼴이 된다).
-    shade = _darken(spec_char.color, 0.075)
+    shade = _darken(body_color, brush.shade)
     appendages = ears + limbs + tail
     app_mask = Image.new("L", (S, S), 0)
     app_draw = ImageDraw.Draw(app_mask)
     for poly in appendages:
         app_draw.polygon(poly, fill=255)
-    canvas.paste(shade, (0, 0),
-                 ImageChops.multiply(ImageChops.multiply(app_mask, not_core), silhouette))
+    if brush.shade > 0:
+        canvas.paste(shade, (0, 0),
+                     ImageChops.multiply(ImageChops.multiply(app_mask, not_core), silhouette))
 
     # 안쪽 구분선. 바깥 윤곽은 하나로 이어진 채 두고 안쪽에만 선이 생겨야
     # "한 마리인데 팔다리가 구분되는" 그림이 된다.
     interior = silhouette.filter(ImageFilter.MinFilter(max(3, lw | 1)))
-    inner_ink = _darken(spec_char.color, 0.45)
+    inner_ink = _darken(body_color, 0.45)
     inner_w = max(3, (lw - 1) | 1)
 
-    for poly in appendages:
-        band = silhouette_outline(_polygon_mask((S, S), poly), inner_w)
-        band = ImageChops.multiply(ImageChops.multiply(band, interior), not_core)
-        canvas.paste(inner_ink, (0, 0), band)
+    if brush.inner_lines:
+        for poly in appendages:
+            band = silhouette_outline(_polygon_mask((S, S), poly), inner_w)
+            band = ImageChops.multiply(ImageChops.multiply(band, interior), not_core)
+            canvas.paste(inner_ink, (0, 0), band)
 
     # 머리와 몸통이 만나는 자리 — 가슴/배 선
-    neck = silhouette_outline(_polygon_mask((S, S), trunk), inner_w)
-    canvas.paste(inner_ink, (0, 0), ImageChops.multiply(neck, interior))
+    if brush.inner_lines:
+        neck = silhouette_outline(_polygon_mask((S, S), trunk), inner_w)
+        canvas.paste(inner_ink, (0, 0), ImageChops.multiply(neck, interior))
 
-    canvas.paste(INK, (0, 0), silhouette_outline(silhouette, lw))
+    # 털 얼룩 — 기니피그처럼 등에 색이 갈리는 종
+    if spec_char.patch and brush.saturation > 0:
+        blot = wobbly_ellipse(cx + body_rx * rng.uniform(-0.42, 0.42),
+                              body_cy + body_ry * rng.uniform(-0.10, 0.35),
+                              body_rx * rng.uniform(0.34, 0.48),
+                              body_ry * rng.uniform(0.34, 0.50),
+                              rng, 48, 0.14)
+        canvas.paste(_darken(body_color, 0.20), (0, 0),
+                     ImageChops.multiply(_polygon_mask((S, S), blot), silhouette))
+
+    canvas.paste(brush.line_color, (0, 0), silhouette_outline(silhouette, lw))
 
     # --- 3) 얼굴 -------------------------------------------------------
     # 트렌드: 중안부가 길다. 눈은 위쪽에 작고 좁게, 입은 한참 아래에.
@@ -947,11 +1055,11 @@ def render_character(
 
     # 흰둥이처럼 몸이 이미 밝으면 주둥이를 칠해도 보이지 않는다.
     # 대비가 안 나오는 칠은 그리지 않는 게 낫다 — 흰 얼룩만 남는다.
-    if spec_char.muzzle and _luminance(spec_char.color) < 235:
+    if spec_char.muzzle and _luminance(body_color) < 235:
         snout = wobbly_ellipse(cx + rng.uniform(-head_rx * 0.03, head_rx * 0.03),
                                (nose_y + mouth_y) * 0.5,
                                head_rx * 0.30, head_rx * 0.22, rng, 44, 0.06)
-        canvas.paste(_lighten(spec_char.color, 0.6), (0, 0),
+        canvas.paste(_lighten(body_color, 0.6), (0, 0),
                      _polygon_mask((S, S), snout))
 
     eye_dx = head_rx * spec_char.eye_spread
@@ -971,7 +1079,10 @@ def render_character(
         if spec_char.teeth:
             _draw_teeth(draw, rng, cx, mouth_y + head_rx * 0.05, head_rx, lw)
 
-    _draw_extras(draw, rng, cx, head_cy, head_rx, head_ry, face.get("extras", []), lw)
+    extras = list(face.get("extras", []))
+    if brush.blush and "blush" not in extras:
+        extras.append("blush")
+    _draw_extras(draw, rng, cx, head_cy, head_rx, head_ry, extras, lw)
 
     return canvas.resize((size, size), Image.LANCZOS)
 
@@ -980,6 +1091,7 @@ def render_contact_sheet(
     keywords: list[str], cell: int = 300, cols: int = 4, seed: int | None = None,
     character: CharacterSpec | None = None,
     background: tuple[int, int, int, int] = (255, 255, 255, 255),
+    draw_style: str | DrawStyle = "doodle",
 ) -> Image.Image:
     """한 캐릭터의 여러 표정을 격자로 배치한다.
 
@@ -991,7 +1103,8 @@ def render_contact_sheet(
     rows = math.ceil(len(keywords) / cols)
     sheet = Image.new("RGBA", (cols * cell, rows * cell), background)
     for i, keyword in enumerate(keywords):
-        cut = render_character(keyword, cell, None if seed is None else seed + i, character)
+        cut = render_character(keyword, cell, None if seed is None else seed + i,
+                               character, draw_style=draw_style)
         sheet.alpha_composite(cut, ((i % cols) * cell, (i // cols) * cell))
     return sheet
 
@@ -999,6 +1112,7 @@ def render_contact_sheet(
 def render_animation(
     keyword: str, size: int = 360, seed: int | None = None,
     character: CharacterSpec | None = None, frames: int = 8, kind: str = "bounce",
+    draw_style: str | DrawStyle = "doodle",
 ) -> list[Image.Image]:
     """움직이는 이모티콘용 루프 프레임을 만든다.
 
@@ -1018,14 +1132,41 @@ def render_animation(
 
     return [
         render_character(keyword, size=size, seed=seed, character=character,
-                         motion=motion_fn(i / frames))
+                         motion=motion_fn(i / frames), draw_style=draw_style)
         for i in range(frames)
     ]
+
+
+def render_style_sheet(
+    character: CharacterSpec, keywords: list[str], cell: int = 260,
+    seed: int | None = None, styles: list[str] | None = None,
+    background: tuple[int, int, int, int] = (255, 255, 255, 255),
+) -> tuple[Image.Image, list[str]]:
+    """같은 캐릭터를 그림체별로 한 줄씩 그려 비교한다.
+
+    행 = 그림체, 열 = 표정. 캐릭터는 고정이므로 순수하게 '붓'만 달라진다.
+    """
+    picked = styles or DRAW_STYLE_NAMES
+    if not keywords:
+        raise ValueError("keywords must not be empty")
+    for name in picked:
+        if name not in DRAW_STYLES:
+            raise ValueError(f"unknown draw style '{name}'. "
+                             f"choose from: {', '.join(DRAW_STYLE_NAMES)}")
+
+    sheet = Image.new("RGBA", (cell * len(keywords), cell * len(picked)), background)
+    for row, style_name in enumerate(picked):
+        for col, keyword in enumerate(keywords):
+            cut = render_character(keyword, cell, None if seed is None else seed + col,
+                                   character, draw_style=style_name)
+            sheet.alpha_composite(cut, (col * cell, row * cell))
+    return sheet, picked
 
 
 def render_lineup(
     count: int = 8, keyword: str = "안녕", cell: int = 300, cols: int = 4,
     base_seed: int = 0, background: tuple[int, int, int, int] = (255, 255, 255, 255),
+    draw_style: str | DrawStyle = "doodle",
 ) -> tuple[Image.Image, list[CharacterSpec]]:
     """서로 다른 캐릭터 후보를 같은 표정으로 나란히 그려 디자인을 비교한다.
 
@@ -1044,6 +1185,6 @@ def render_lineup(
     rows = math.ceil(count / cols)
     sheet = Image.new("RGBA", (cols * cell, rows * cell), background)
     for i, char in enumerate(characters):
-        cut = render_character(keyword, cell, base_seed + i, char)
+        cut = render_character(keyword, cell, base_seed + i, char, draw_style=draw_style)
         sheet.alpha_composite(cut, ((i % cols) * cell, (i // cols) * cell))
     return sheet, characters

@@ -15,7 +15,7 @@ from . import kakao_spec, prompts
 from .backends import get_backend
 from .config import get_settings
 from .pipeline import generate_set
-from .sketchgen import ANIMALS, MOTION_PRESETS
+from .sketchgen import ANIMALS, DRAW_STYLE_NAMES, MOTION_PRESETS
 
 
 def _cmd_generate(args: argparse.Namespace) -> int:
@@ -30,6 +30,7 @@ def _cmd_generate(args: argparse.Namespace) -> int:
     if backend_name == "sketch":
         backend_kwargs["character_seed"] = args.character_seed
         backend_kwargs["animal"] = args.animal
+        backend_kwargs["draw_style"] = args.draw_style
     elif backend_name == "dalle":
         backend_kwargs["api_key"] = args.api_key or settings.openai_api_key
     elif backend_name == "stable_diffusion":
@@ -130,6 +131,7 @@ def _cmd_samples(args: argparse.Namespace) -> int:
         sheet, characters = sketchgen.render_lineup(
             count=args.count, keyword=args.keyword, cell=args.cell,
             cols=args.cols, base_seed=args.seed, background=background,
+            draw_style=args.draw_style,
         )
         print(f"캐릭터 후보 {len(characters)}종 (--character-seed 값으로 그대로 재현 가능):")
         for i, c in enumerate(characters):
@@ -143,6 +145,22 @@ def _cmd_samples(args: argparse.Namespace) -> int:
                 f"  seed={args.seed + i:<4d} {c.animal:<8s} 귀={c.ear:<7s} "
                 f"코={c.nose:<9s} {feats}"
             )
+    elif args.mode == "styles":
+        keywords = (
+            [k.strip() for k in args.emotions.split(",") if k.strip()]
+            if args.emotions else ["안녕", "기쁨", "놀람", "사랑해"]
+        )
+        character = sketchgen.make_character(
+            args.character_seed if args.character_seed is not None else 0,
+            animal=args.animal,
+        )
+        sheet, used = sketchgen.render_style_sheet(
+            character, keywords, cell=args.cell, seed=args.seed, background=background,
+        )
+        print(f"{character.animal} 캐릭터를 그림체 {len(used)}종으로 렌더링했습니다 "
+              f"(행 = 그림체, 열 = 표정):")
+        for name in used:
+            print(f"  - {name}")
     else:
         keywords = (
             [k.strip() for k in args.emotions.split(",") if k.strip()]
@@ -154,7 +172,7 @@ def _cmd_samples(args: argparse.Namespace) -> int:
         )
         sheet = sketchgen.render_contact_sheet(
             keywords, cell=args.cell, cols=args.cols, seed=args.seed,
-            character=character, background=background,
+            character=character, background=background, draw_style=args.draw_style,
         )
         print(f"표정 {len(keywords)}컷을 한 캐릭터로 렌더링했습니다.")
 
@@ -174,6 +192,7 @@ def _cmd_animate(args: argparse.Namespace) -> int:
     frames = sketchgen.render_animation(
         args.keyword, size=args.size, seed=args.seed,
         character=character, frames=args.frames, kind=args.motion,
+        draw_style=args.draw_style,
     )
     out = postprocess.frames_to_gif(frames, args.out, duration_ms=args.duration)
     print(f"{args.keyword} · {args.motion} · {len(frames)}프레임 → {out}")
@@ -227,6 +246,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--animal", choices=ANIMALS, default=None,
         help="sketch 백엔드의 동물 종류",
     )
+    p_gen.add_argument(
+        "--draw-style", choices=DRAW_STYLE_NAMES, default="doodle",
+        help="그림체 (styles 모드에서는 무시하고 전부 그립니다)",
+    )
     p_gen.add_argument("--api-key", default=None, help="dalle 백엔드용 OpenAI API 키")
     p_gen.add_argument("--model", default=None, help="stable_diffusion 백엔드용 모델 ID")
     p_gen.add_argument("--device", default=None, help="stable_diffusion 백엔드용 device (cuda/cpu/mps)")
@@ -242,8 +265,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_samp = sub.add_parser("samples", help="절차적 렌더러로 캐릭터/표정 비교 시트 생성")
     p_samp.add_argument(
-        "--mode", choices=["lineup", "expressions"], default="lineup",
-        help="lineup: 서로 다른 캐릭터 후보 비교 / expressions: 한 캐릭터의 표정 세트",
+        "--mode", choices=["lineup", "expressions", "styles"], default="lineup",
+        help="lineup: 캐릭터 후보 비교 / expressions: 한 캐릭터의 표정 세트 / "
+             "styles: 한 캐릭터를 그림체별로 비교",
     )
     p_samp.add_argument("--out", default="output/samples.png")
     p_samp.add_argument("--count", type=int, default=8, help="lineup 모드에서 뽑을 후보 수")
@@ -257,6 +281,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_samp.add_argument("--cell", type=int, default=300)
     p_samp.add_argument("--cols", type=int, default=4)
     p_samp.add_argument("--seed", type=int, default=0)
+    p_samp.add_argument(
+        "--draw-style", choices=DRAW_STYLE_NAMES, default="doodle",
+        help="그림체 (styles 모드에서는 무시하고 전부 그립니다)",
+    )
     p_samp.add_argument("--dark", action="store_true", help="다크모드 배경에 올려 가독성 확인")
     p_samp.set_defaults(func=_cmd_samples)
 
@@ -269,6 +297,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_anim.add_argument("--character-seed", type=int, default=None)
     p_anim.add_argument("--animal", choices=ANIMALS, default=None)
     p_anim.add_argument("--seed", type=int, default=None)
+    p_anim.add_argument(
+        "--draw-style", choices=DRAW_STYLE_NAMES, default="doodle",
+        help="그림체 (styles 모드에서는 무시하고 전부 그립니다)",
+    )
     p_anim.add_argument("--out", default="output/animated.gif")
     p_anim.set_defaults(func=_cmd_animate)
 

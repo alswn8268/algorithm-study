@@ -25,7 +25,9 @@ class SketchGenerator(ImageGenerator):
         character: CharacterSpec | None = None,
         character_seed: int | None = None,
         animal: str | None = None,
+        draw_style: str = "doodle",
     ):
+        self.draw_style = draw_style
         if character is not None:
             self.character = character
         elif character_seed is not None:
@@ -45,4 +47,6 @@ class SketchGenerator(ImageGenerator):
         match = _KEYWORD_RE.search(prompt)
         # 프롬프트 형식이 바뀌어도 죽지 않도록 전체 프롬프트로 폴백한다.
         keyword = match.group(1) if match else prompt
-        return sketchgen.render_character(keyword, size=size, seed=seed, character=self.character)
+        return sketchgen.render_character(keyword, size=size, seed=seed,
+                                          character=self.character,
+                                          draw_style=self.draw_style)
