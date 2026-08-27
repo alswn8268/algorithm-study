@@ -10,7 +10,20 @@ GPU나 API 키가 없어도 `sketch` 백엔드로 **지금 바로** 화풍에 �
 
 ```bash
 pip install -e .
-kakao-emoticon-gen samples --mode lineup --count 8 --out lineup.png
+kakao-emoticon-gen samples --mode lineup --count 7 --out lineup.png
+```
+
+동물형 8종(곰 · 햄스터 · 토끼 · 고양이 · 강아지 · 오리 · 물범 · **기니피그**)을
+지원하며, 종마다 귀 · 코 · 주둥이 · 볼주머니 · 수염 · 앞니 조합이 다릅니다.
+그림체는 `doodle` / `chunky` / `pastel` / `sticker` / `mono` 5종 중 고릅니다.
+움직이는 이모티콘(GIF)도 `animate` 명령으로 뽑을 수 있습니다.
+
+확정 캐릭터 **떡냥이**(찹쌀떡 고양이)는 이름으로 바로 부를 수 있습니다 —
+얼굴은 고정이고 감정은 몸의 물성(부풀기·녹음·늘어남·굳음)으로 표현합니다.
+
+```bash
+kakao-emoticon-gen generate --emotions "기쁨,졸림,놀람,화남" \
+    --backend sketch --character tteoknyangi --fit canvas --seed 11 --jitter 0
 ```
 
 > ⚠️ **면책 조항**: 이 도구는 제작 과정을 자동화/보조할 뿐입니다.
@@ -46,9 +59,9 @@ kakao-emoticon-gen samples --mode lineup --count 8 --out lineup.png
 > AI 티 제거 후처리, 제출 전 체크리스트는 [docs/STYLE_GUIDE.md](docs/STYLE_GUIDE.md)에
 > 정리돼 있습니다. 32컷 작업을 시작하기 전에 먼저 읽어주세요.**
 
-GIF(움직이는) 이모티콘은 이 저장소에서 프레임 단위 정지 이미지 생성까지만
-자동화하며, 프레임 보간·GIF 인코딩은 `postprocess.py`의 `frames_to_gif`로
-별도 지원합니다.
+GIF(움직이는) 이모티콘은 `sketch` 백엔드에서 `animate` 명령으로 바로 뽑을 수
+있습니다(`bounce`/`wiggle`/`nod`). AI 백엔드를 쓸 땐 `animated_frame` 프리셋으로
+프레임을 뽑아 `postprocess.frames_to_gif`로 합칩니다.
 
 ### ⚠️ 한글 텍스트는 AI에 시키지 마세요
 
@@ -100,7 +113,7 @@ kakao-emoticon-generator/
 [copyright_guard.py]  브랜드/캐릭터 금칙어 검사 + 네거티브 프롬프트 강제 삽입
    │
    ▼
-[backends/*]         이미지 생성 (mock / dalle / stable_diffusion)
+[backends/*]         이미지 생성 (sketch / mock / dalle / stable_diffusion)
    │
    ▼
 [postprocess.py]     배경 제거 → 손떨림 지터(AI 티 제거) → 정사각 패딩
@@ -150,8 +163,11 @@ python -m kakao_emoticon_gen.cli checklist # 모듈 실행
 ## 3. 사용법
 
 ```bash
-# 0) 캐릭터 후보 8종을 같은 표정으로 뽑아 디자인 비교
+# 0) 동물 캐릭터 후보 8종을 같은 표정으로 뽑아 디자인 비교
 python -m kakao_emoticon_gen.cli samples --mode lineup --count 8 --out output/lineup.png
+
+# 0-a) 한 캐릭터를 그림체별로 비교 (행 = 그림체, 열 = 표정)
+python -m kakao_emoticon_gen.cli samples --mode styles --animal guineapig --character-seed 2
 
 # 0-1) 마음에 드는 후보의 seed로 32컷 표정 세트 전체를 미리보기
 python -m kakao_emoticon_gen.cli samples --mode expressions \
@@ -160,6 +176,10 @@ python -m kakao_emoticon_gen.cli samples --mode expressions \
 # 0-2) 다크모드 배경에서 묻히지 않는지 눈으로 확인
 python -m kakao_emoticon_gen.cli samples --mode expressions \
     --character-seed 5 --dark --out output/set_dark.png
+
+# 0-3) 움직이는 이모티콘(GIF) 뽑기
+python -m kakao_emoticon_gen.cli animate --keyword 기쁨 --motion bounce \
+    --animal hamster --character-seed 4 --out output/bounce.gif
 
 # 1) GPU/API 없이 실제 발그림 그림으로 32컷 생성 (세트 크기 일정하게)
 python -m kakao_emoticon_gen.cli generate \
@@ -205,6 +225,9 @@ python -m kakao_emoticon_gen.cli list-emotions
 | `--jitter` | AI 티 제거용 손떨림 강도(픽셀, 기본 1.5). `0`이면 끕니다 |
 | `--fit` | `canvas`는 원본 프레이밍을 유지해 **세트 내 캐릭터 크기를 일정하게** 합니다. 기본값 `content`는 컷마다 내용물에 꽉 차게 확대하므로, 팔을 벌린 컷의 몸통이 작아져 32컷 통일감이 깨집니다 |
 | `--character-seed` | `sketch` 백엔드의 캐릭터 디자인. **세트 내내 같은 값**을 써야 같은 캐릭터가 됩니다 |
+| `--animal` | 동물 종류 (`bear`/`hamster`/`rabbit`/`cat`/`dog`/`duck`/`seal`/`guineapig`) |
+| `--draw-style` | 그림체 (`doodle`/`chunky`/`pastel`/`sticker`/`mono`). 세트 내내 같은 값을 쓰세요 |
+| `--character` | 확정 캐릭터를 이름으로 (`tteoknyangi`). 생김새 + 그림체가 함께 고정됩니다 |
 
 결과물:
 

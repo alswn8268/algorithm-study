@@ -15,6 +15,7 @@ from . import kakao_spec, prompts
 from .backends import get_backend
 from .config import get_settings
 from .pipeline import generate_set
+from .sketchgen import ANIMALS, DRAW_STYLE_NAMES, MOTION_PRESETS, NAMED_CHARACTERS
 
 
 def _cmd_generate(args: argparse.Namespace) -> int:
@@ -28,6 +29,9 @@ def _cmd_generate(args: argparse.Namespace) -> int:
     backend_kwargs = {}
     if backend_name == "sketch":
         backend_kwargs["character_seed"] = args.character_seed
+        backend_kwargs["animal"] = args.animal
+        backend_kwargs["draw_style"] = args.draw_style
+        backend_kwargs["named"] = args.character
     elif backend_name == "dalle":
         backend_kwargs["api_key"] = args.api_key or settings.openai_api_key
     elif backend_name == "stable_diffusion":
@@ -106,12 +110,26 @@ def _cmd_list_emotions(_: argparse.Namespace) -> int:
 SUBMISSION_CHECKLIST: list[str] = [
     "논란이 없을 법한 최신 유행어나 오래가는 밈을 활용",
     "32컷 모두 같은 사람이 대충 그린 듯한 통일감 (선의 얇기·떨림 정도·낙서 텐션이 일정)",
-    "선이 너무 깔끔한 컷이 없는지 (있다면 다시 빠르게 그려서 교체 — 오래 그릴수록 망함)",
-    "채색이 선 안에 얌전히 들어간 컷이 없는지 (일부러 삐져나가게)",
+    "눈 스타일(초롱초롱/광기)이 컷마다 제멋대로 뒤섞이지 않았는지",
+    "눈과 입 사이(중안부)가 컷마다 들쭉날쭉하지 않은지",
+    "채색이 깔끔한 평면인지 (그라데이션·명암 금지)",
     "참고 캐릭터와 실루엣이 겹치지 않는지",
     "텍스트 없이 봐도 뜻이 통하는지 (논버벌 테스트)",
     "손글씨 텍스트에 흰색 아웃라인 + 다크모드 가독성 확인",
 ]
+
+
+
+def _resolve_character(args, sketchgen):
+    """--character(확정 캐릭터) > --character-seed/--animal 순으로 결정한다."""
+    named = getattr(args, "character", None)
+    if named:
+        spec, style = sketchgen.NAMED_CHARACTERS[named]
+        return spec, style
+    style = getattr(args, "draw_style", "doodle")
+    if getattr(args, "character_seed", None) is not None:
+        return sketchgen.make_character(args.character_seed, animal=args.animal), style
+    return None, style
 
 
 def _cmd_samples(args: argparse.Namespace) -> int:
@@ -127,27 +145,67 @@ def _cmd_samples(args: argparse.Namespace) -> int:
         sheet, characters = sketchgen.render_lineup(
             count=args.count, keyword=args.keyword, cell=args.cell,
             cols=args.cols, base_seed=args.seed, background=background,
+            draw_style=args.draw_style,
         )
         print(f"캐릭터 후보 {len(characters)}종 (--character-seed 값으로 그대로 재현 가능):")
         for i, c in enumerate(characters):
-            print(f"  seed={args.seed + i:<4d} 머리={c.tuft:<8s} 색={c.color[:3]}")
+            feats = ", ".join(
+                f for f, on in (
+                    ("주둥이", c.muzzle), ("볼주머니", c.cheeks),
+                    ("수염", c.whiskers), ("앞니", c.teeth),
+                ) if on
+            ) or "-"
+            print(
+                f"  seed={args.seed + i:<4d} {c.animal:<8s} 귀={c.ear:<7s} "
+                f"코={c.nose:<9s} {feats}"
+            )
+    elif args.mode == "styles":
+        keywords = (
+            [k.strip() for k in args.emotions.split(",") if k.strip()]
+            if args.emotions else ["안녕", "기쁨", "놀람", "사랑해"]
+        )
+        character = sketchgen.make_character(
+            args.character_seed if args.character_seed is not None else 0,
+            animal=args.animal,
+        )
+        sheet, used = sketchgen.render_style_sheet(
+            character, keywords, cell=args.cell, seed=args.seed, background=background,
+        )
+        print(f"{character.animal} 캐릭터를 그림체 {len(used)}종으로 렌더링했습니다 "
+              f"(행 = 그림체, 열 = 표정):")
+        for name in used:
+            print(f"  - {name}")
     else:
         keywords = (
             [k.strip() for k in args.emotions.split(",") if k.strip()]
             if args.emotions else prompts.RECOMMENDED_EMOTION_SET
         )
-        character = (
-            sketchgen.make_character(args.character_seed)
-            if args.character_seed is not None else None
-        )
+        character, style = _resolve_character(args, sketchgen)
         sheet = sketchgen.render_contact_sheet(
             keywords, cell=args.cell, cols=args.cols, seed=args.seed,
-            character=character, background=background,
+            character=character, background=background, draw_style=style,
         )
         print(f"표정 {len(keywords)}컷을 한 캐릭터로 렌더링했습니다.")
 
     sheet.convert("RGB").save(out)
     print(f"→ {out}")
+    return 0
+
+
+def _cmd_animate(args: argparse.Namespace) -> int:
+    """움직이는 이모티콘용 GIF를 만든다."""
+    from . import postprocess, sketchgen
+
+    character, style = _resolve_character(args, sketchgen)
+    frames = sketchgen.render_animation(
+        args.keyword, size=args.size, seed=args.seed,
+        character=character, frames=args.frames, kind=args.motion,
+        draw_style=style,
+    )
+    out = postprocess.frames_to_gif(frames, args.out, duration_ms=args.duration)
+    print(f"{args.keyword} · {args.motion} · {len(frames)}프레임 → {out}")
+    print("⚠️  움직이는 이모티콘 규격(프레임 수·용량)은 멈춰있는 것과 다릅니다. "
+          "제출 전 공식 가이드를 확인하세요.")
     return 0
 
 
@@ -192,6 +250,18 @@ def build_parser() -> argparse.ArgumentParser:
         "--character-seed", type=int, default=None,
         help="sketch 백엔드용 캐릭터 디자인 seed. 세트 내내 같은 값을 쓰세요",
     )
+    p_gen.add_argument(
+        "--animal", choices=ANIMALS, default=None,
+        help="sketch 백엔드의 동물 종류",
+    )
+    p_gen.add_argument(
+        "--draw-style", choices=DRAW_STYLE_NAMES, default="doodle",
+        help="그림체 (styles 모드에서는 무시하고 전부 그립니다)",
+    )
+    p_gen.add_argument(
+        "--character", choices=list(NAMED_CHARACTERS), default=None,
+        help="확정 캐릭터를 이름으로 불러옵니다 (생김새 + 그림체가 함께 고정됩니다)",
+    )
     p_gen.add_argument("--api-key", default=None, help="dalle 백엔드용 OpenAI API 키")
     p_gen.add_argument("--model", default=None, help="stable_diffusion 백엔드용 모델 ID")
     p_gen.add_argument("--device", default=None, help="stable_diffusion 백엔드용 device (cuda/cpu/mps)")
@@ -207,19 +277,52 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_samp = sub.add_parser("samples", help="절차적 렌더러로 캐릭터/표정 비교 시트 생성")
     p_samp.add_argument(
-        "--mode", choices=["lineup", "expressions"], default="lineup",
-        help="lineup: 서로 다른 캐릭터 후보 비교 / expressions: 한 캐릭터의 표정 세트",
+        "--mode", choices=["lineup", "expressions", "styles"], default="lineup",
+        help="lineup: 캐릭터 후보 비교 / expressions: 한 캐릭터의 표정 세트 / "
+             "styles: 한 캐릭터를 그림체별로 비교",
     )
     p_samp.add_argument("--out", default="output/samples.png")
     p_samp.add_argument("--count", type=int, default=8, help="lineup 모드에서 뽑을 후보 수")
     p_samp.add_argument("--keyword", default="안녕", help="lineup 모드에서 쓸 공통 표정")
     p_samp.add_argument("--emotions", default=None, help="expressions 모드의 감정 목록 (기본: 32컷 세트)")
     p_samp.add_argument("--character-seed", type=int, default=None, help="expressions 모드의 캐릭터")
+    p_samp.add_argument(
+        "--animal", choices=ANIMALS, default=None,
+        help="종을 직접 고릅니다 (미지정 시 seed가 정합니다)",
+    )
     p_samp.add_argument("--cell", type=int, default=300)
     p_samp.add_argument("--cols", type=int, default=4)
     p_samp.add_argument("--seed", type=int, default=0)
+    p_samp.add_argument(
+        "--draw-style", choices=DRAW_STYLE_NAMES, default="doodle",
+        help="그림체 (styles 모드에서는 무시하고 전부 그립니다)",
+    )
+    p_samp.add_argument(
+        "--character", choices=list(NAMED_CHARACTERS), default=None,
+        help="확정 캐릭터를 이름으로 불러옵니다",
+    )
     p_samp.add_argument("--dark", action="store_true", help="다크모드 배경에 올려 가독성 확인")
     p_samp.set_defaults(func=_cmd_samples)
+
+    p_anim = sub.add_parser("animate", help="움직이는 이모티콘용 GIF 생성")
+    p_anim.add_argument("--keyword", default="기쁨", help="표정으로 쓸 감정 키워드")
+    p_anim.add_argument("--motion", choices=list(MOTION_PRESETS), default="bounce")
+    p_anim.add_argument("--frames", type=int, default=8)
+    p_anim.add_argument("--duration", type=int, default=110, help="프레임당 표시 시간(ms)")
+    p_anim.add_argument("--size", type=int, default=360)
+    p_anim.add_argument("--character-seed", type=int, default=None)
+    p_anim.add_argument("--animal", choices=ANIMALS, default=None)
+    p_anim.add_argument("--seed", type=int, default=None)
+    p_anim.add_argument(
+        "--draw-style", choices=DRAW_STYLE_NAMES, default="doodle",
+        help="그림체 (styles 모드에서는 무시하고 전부 그립니다)",
+    )
+    p_anim.add_argument(
+        "--character", choices=list(NAMED_CHARACTERS), default=None,
+        help="확정 캐릭터를 이름으로 불러옵니다",
+    )
+    p_anim.add_argument("--out", default="output/animated.gif")
+    p_anim.set_defaults(func=_cmd_animate)
 
     p_check = sub.add_parser("checklist", help="제출 전 수동 검토 체크리스트 출력")
     p_check.set_defaults(func=_cmd_checklist)

@@ -20,11 +20,24 @@ _KEYWORD_RE = re.compile(r'expressing "(.+?)" emotion')
 
 
 class SketchGenerator(ImageGenerator):
-    def __init__(self, character: CharacterSpec | None = None, character_seed: int | None = None):
+    def __init__(
+        self,
+        character: CharacterSpec | None = None,
+        character_seed: int | None = None,
+        animal: str | None = None,
+        draw_style: str = "doodle",
+        named: str | None = None,
+    ):
+        self.draw_style = draw_style
+        if named:
+            # 확정 캐릭터는 생김새와 그림체가 한 쌍이라 같이 가져온다
+            character, self.draw_style = sketchgen.NAMED_CHARACTERS[named]
         if character is not None:
             self.character = character
         elif character_seed is not None:
-            self.character = sketchgen.make_character(character_seed)
+            self.character = sketchgen.make_character(character_seed, animal=animal)
+        elif animal is not None:
+            self.character = sketchgen.make_character(0, animal=animal)
         else:
             self.character = sketchgen.DEFAULT_CHARACTER
 
@@ -38,4 +51,6 @@ class SketchGenerator(ImageGenerator):
         match = _KEYWORD_RE.search(prompt)
         # 프롬프트 형식이 바뀌어도 죽지 않도록 전체 프롬프트로 폴백한다.
         keyword = match.group(1) if match else prompt
-        return sketchgen.render_character(keyword, size=size, seed=seed, character=self.character)
+        return sketchgen.render_character(keyword, size=size, seed=seed,
+                                          character=self.character,
+                                          draw_style=self.draw_style)

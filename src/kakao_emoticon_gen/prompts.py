@@ -16,29 +16,32 @@ from dataclasses import dataclass
 # --- 스타일 프리셋 ---------------------------------------------------------
 
 STYLE_PRESETS: dict[str, str] = {
-    # 볼펜 발그림 (기본값) — "대충 그린 정제되지 않은 낙서" 화풍.
-    # 눈은 검정 점눈만, 선은 얇고 떨리는 볼펜 선, 좌우 비대칭, 채색은
-    # 선 밖으로 삐져나가게. 자세한 고정 규칙은 docs/STYLE_GUIDE.md 참고.
+    # 볼펜 발그림 (기본값) — 2025 트렌드인 "낙서형 흰둥이" 문법.
+    # 아주 작은 점눈 · 긴 중안부 · 하나로 이어진 실루엣 · 깔끔한 평면 채색.
+    # 자세한 고정 규칙은 docs/STYLE_GUIDE.md 참고.
     "pen_doodle": (
-        "a crude careless doodle scribbled in about thirty seconds, "
-        "thin shaky ballpoint pen lines, wobbly trembling strokes drawn with an unsteady hand, "
-        "each line gone over two or three times with the stray overlapping strokes left in, "
-        "line ends that do not quite meet and leave small gaps at the corners, "
-        "plain round solid black dot eyes deliberately mismatched in size and set at "
-        "slightly different heights, "
+        "a crude careless doodle of a simple round animal creature, "
+        "thin shaky ballpoint pen line, wobbly trembling outline drawn with an unsteady hand, "
+        "one single continuous contour around the whole body so ears and stubby limbs "
+        "grow out of the body instead of looking like separate shapes stuck on, "
+        "big round shiny eyes with large bright highlights, set high on the face, "
+        "expression pushed to an unhinged manic extreme, "
+        "very long midface with a wide empty gap between the eyes and the mouth, "
+        "small simple mouth placed low, "
         "lopsided asymmetric wonky proportions, squashed uneven head, limbs of unequal length, "
-        "flat crayon-scribble coloring that spills messily outside the outlines "
-        "and leaves patchy white gaps unfilled inside, "
+        "clean flat off-white cream fill with no texture, "
+        "soft brown facial features rather than pure black, "
+        "hearts and teardrops drawn in colour, "
         "single character, centered, plain white paper background, "
-        "amateur sketchbook doodle, intentionally unpolished and badly drawn"
+        "amateur sketchbook doodle, intentionally unpolished"
     ),
     # 텍스트형 — 문구 자리만 비워두고 그림만 생성한다. 한글은 후처리에서 얹는다.
     "text_based": (
-        "a crude careless doodle scribbled in about thirty seconds, "
-        "thin shaky ballpoint pen lines, wobbly trembling strokes, "
-        "plain round solid black dot eyes mismatched in size, "
+        "a crude careless doodle of a simple round animal creature, "
+        "thin shaky ballpoint pen line, one continuous contour around the body, "
+        "big round shiny eyes with large highlights, set high, long midface, mouth placed low, "
         "lopsided asymmetric proportions, "
-        "flat scribbled coloring spilling outside the outlines, "
+        "clean flat off-white fill, soft brown facial features, "
         "character placed in the upper portion with generous empty blank space left "
         "at the bottom of the frame, completely wordless with no writing anywhere, "
         "single character, plain white paper background, amateur sketchbook doodle"
@@ -46,12 +49,12 @@ STYLE_PRESETS: dict[str, str] = {
     # 움직이는 GIF형 (단일 프레임 생성용 — 여러 프레임을 seed만 바꿔 생성 후
     # postprocess.frames_to_gif로 조합)
     "animated_frame": (
-        "a crude careless doodle scribbled in about thirty seconds, "
-        "character caught mid-motion in an exaggerated flailing pose, "
-        "thin shaky ballpoint pen lines, wobbly trembling strokes, "
-        "plain round solid black dot eyes mismatched in size, "
+        "a crude careless doodle of a simple round animal creature, "
+        "caught mid-motion in an exaggerated flailing pose, "
+        "thin shaky ballpoint pen line, one continuous contour around the body, "
+        "big round shiny eyes with large highlights, set high, long midface, mouth placed low, "
         "lopsided asymmetric wonky proportions, "
-        "flat scribbled coloring spilling outside the outlines, "
+        "clean flat off-white fill, soft brown facial features, "
         "single animation frame, single character, plain white paper background, "
         "amateur sketchbook doodle, intentionally unpolished"
     ),
@@ -78,12 +81,12 @@ NEGATIVE_PROMPT_BASE = (
 # 스타일별 추가 네거티브. 발그림 계열은 AI가 기본적으로 "잘 그리려는" 경향을
 # 억누르는 것이 핵심이라, 정제된 결과물을 유도하는 단어를 광범위하게 배제한다.
 _SLOPPY_NEGATIVE = (
-    "eye highlights, sparkling eyes, eyelashes, crescent eyes, glossy eyes, "
-    "gradient, shading, soft shading, cel shading, ambient occlusion, "
-    "symmetrical, perfectly symmetrical, clean lineart, smooth lines, uniform line weight, "
-    "vector art, crisp edges, anti-aliased, polished, refined, highly detailed, "
-    "professional illustration, masterpiece, well drawn, neat coloring, "
-    "coloring that stays inside the lines"
+    "dead flat eyes, eyelashes, realistic eyes, "
+    "gradient, shading, soft shading, cel shading, ambient occlusion, textured fill, "
+    "short midface, mouth close to the eyes, crowded facial features, "
+    "symmetrical, perfectly symmetrical, separate outlines around each body part, "
+    "vector art, polished, refined, highly detailed, "
+    "professional illustration, masterpiece, well drawn"
 )
 
 STYLE_NEGATIVES: dict[str, str] = {
