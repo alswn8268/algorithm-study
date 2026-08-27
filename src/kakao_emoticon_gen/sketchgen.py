@@ -58,6 +58,8 @@ DROP_FILL = (162, 210, 244, 255)
 DROP_LINE = (86, 152, 204, 255)
 SPARKLE_COLOR = (255, 196, 84, 255)
 BLUSH_COLOR = (245, 150, 158, 255)
+BLUSH_SOFT = (252, 200, 202, 255)   # 볼터치 면 채색용 연핑크
+PAW_PINK = (250, 186, 190, 255)     # 젤리 발바닥
 ANGER_COLOR = (226, 84, 84, 255)
 
 # 2025 트렌드는 "낙서형 흰둥이" — 흰/크림색 몸이 주류라 맨 앞에 둔다.
@@ -109,7 +111,104 @@ DRAW_STYLES: dict[str, DrawStyle] = {
                       shade=0.0, inner_lines=True),
 }
 
+# 떡냥이용 — 얇고 흔들리는 짙은 갈색 펜선 + 흰 몸 + 연핑크 볼
+DRAW_STYLES["mochi"] = DrawStyle(
+    "mochi", line_width=1.35, line_color=(59, 38, 26, 255), wobble=1.15,
+    saturation=1.0, shade=0.0, inner_lines=False, blush=True,
+)
+
 DRAW_STYLE_NAMES = list(DRAW_STYLES)
+
+
+# --------------------------------------------------------------------------
+# 몸으로 연기하는 캐릭터 — 표정을 고정하고 실루엣으로 감정을 표현한다
+# --------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class BodyState:
+    """감정 한 가지에 대응하는 몸의 변형."""
+    sx: float = 1.0        # 가로 배수
+    sy: float = 1.0        # 세로 배수
+    melt: float = 0.0      # 녹아내림 — 아래로 퍼지고 바닥이 눌린다
+    harden: float = 0.0    # 굳음 — 실루엣이 각져진다
+    cracks: int = 0        # 금 개수
+    lean: float = 0.0      # 기울기(라디안)
+    limb: float = 0.0      # 팔 각도 보정
+
+
+# 설정의 시각 언어를 그대로 옮긴 것:
+#   행복 → 부푼다 / 귀찮음 → 녹는다 / 놀람 → 늘어난다
+#   부끄러움 → 접힌다 / 화남 → 굳는다 / 기다림 → 금이 간다
+BODY_STATES: dict[str, BodyState] = {
+    "puff":    BodyState(sx=1.10, sy=1.08),
+    "stretch": BodyState(sx=0.84, sy=1.30, limb=-14),
+    "melt":    BodyState(sx=1.18, sy=0.80, melt=0.85),
+    "squish":  BodyState(sx=1.14, sy=0.84, lean=0.05),
+    "harden":  BodyState(sx=0.97, sy=1.00, harden=0.55),
+    "crack":   BodyState(sx=0.97, sy=0.99, harden=0.62, cracks=3),
+    "neutral": BodyState(),
+}
+
+# 32컷 감정 → 몸 상태. 얼굴은 절대 안 변하므로 이 표가 감정 전달을 전담한다.
+EMOTION_BODY: dict[str, str] = {
+    "안녕": "neutral",   "반가워": "puff",    "기쁨": "puff",     "슬픔": "melt",
+    "화남": "harden",    "놀람": "stretch",   "사랑해": "puff",    "고마워": "squish",
+    "미안해": "squish",  "축하해": "puff",    "화이팅": "puff",    "웃김": "squish",
+    "심심함": "melt",    "졸림": "melt",      "배고픔": "melt",    "당황": "stretch",
+    "부끄러움": "squish", "자신감": "puff",   "실망": "melt",      "긴장": "harden",
+    "감동": "puff",      "궁금함": "stretch", "지침": "melt",      "설렘": "puff",
+    "만족": "puff",      "거절": "harden",    "수긍": "squish",    "눈치보기": "harden",
+    "신남": "puff",      "멍때림": "neutral", "삐짐": "crack",     "잘자": "melt",
+}
+
+
+def _apply_body_state(points, cx: float, cy: float, rx: float, ry: float,
+                      state: BodyState) -> list[tuple[float, float]]:
+    """실루엣 점들을 감정에 맞게 변형한다.
+
+    베이스 도형을 먼저 만들고 *뒤에* 변형하므로 난수 소비 순서를 건드리지
+    않는다 — 같은 seed면 같은 손떨림이 유지된다.
+    """
+    floor = cy + ry * (1.0 - 0.20 * state.melt)
+    out = []
+    for x, y in points:
+        if state.melt:
+            depth = (y - cy) / ry
+            if depth > 0:                       # 아래쪽일수록 옆으로 퍼진다
+                x = cx + (x - cx) * (1.0 + state.melt * 0.60 * depth)
+            y = min(y, floor)                   # 바닥에 눌린다
+        if state.harden:
+            ux, uy = (x - cx) / rx, (y - cy) / ry
+            m = max(abs(ux), abs(uy)) or 1e-6
+            k = state.harden
+            ux = ux * (1 - k) + (ux / m) * k * 0.92
+            uy = uy * (1 - k) + (uy / m) * k * 0.92
+            x, y = cx + ux * rx, cy + uy * ry
+        out.append((x, y))
+    return out
+
+
+def _draw_blush_ovals(canvas, rng, cx, cy, rx, ry, S: int) -> None:
+    """연핑크 볼터치. 선 세 줄이 아니라 뭉근한 타원이어야 찹쌀떡 얼굴이 된다."""
+    for sx in (-1, 1):
+        bx = cx + sx * rx * rng.uniform(0.46, 0.56)
+        by = cy + ry * rng.uniform(0.02, 0.10)
+        oval = wobbly_ellipse(bx, by, rx * rng.uniform(0.17, 0.21),
+                              rx * rng.uniform(0.12, 0.15), rng, 36, 0.10)
+        canvas.paste(BLUSH_SOFT, (0, 0), _polygon_mask((S, S), oval))
+
+
+def _draw_cracks(draw, rng, cx, cy, rx, ry, count: int, lw: int, color) -> None:
+    """오래 굳었을 때 생기는 금. 지그재그로 짧게 긋는다."""
+    for _ in range(count):
+        x = cx + rng.uniform(-rx * 0.55, rx * 0.55)
+        y = cy + rng.uniform(-ry * 0.45, ry * 0.35)
+        seg = [(x, y)]
+        for _ in range(rng.randint(2, 3)):
+            x += rng.uniform(-rx * 0.10, rx * 0.10)
+            y += rng.uniform(ry * 0.10, ry * 0.20)
+            seg.append((x, y))
+        pen_stroke(draw, seg, rng, max(2, lw - 1), 1, color=color, drift=0.8)
 
 
 def _saturate(color: tuple[int, int, int, int], amount: float) -> tuple[int, int, int, int]:
@@ -150,6 +249,11 @@ class CharacterSpec:
     tail: str = "none"           # stub | curl | none
     patch: bool = False          # 등에 난 털색 얼룩 (기니피그 등 얼룩 있는 종)
     neckless: bool = False       # 머리와 몸통이 거의 붙어 목이 없는 체형
+    one_piece: bool = False      # 머리와 몸이 한 덩어리 (1등신 블롭)
+    ear_scale: float = 1.0       # 귀 크기 배수
+    fixed_face: bool = False     # 표정이 절대 변하지 않는다 — 몸이 대신 연기한다
+    blush: bool = False          # 볼터치가 캐릭터 고정 요소
+    paw_pads: bool = False       # 핑크 젤리 발바닥
     name: str = "character"
 
 
@@ -516,7 +620,7 @@ def _lighten(color: tuple[int, int, int, int], amount: float) -> tuple[int, int,
     )
 
 
-def _ear_shapes(rng, cx, cy, rx, ry, kind: str) -> list[list[tuple[float, float]]]:
+def _ear_shapes(rng, cx, cy, rx, ry, kind: str, ear_scale: float = 1.0) -> list[list[tuple[float, float]]]:
     """귀 윤곽 경로를 좌우 한 쌍으로 만든다. 좌우를 미세하게 다르게 뽑는다."""
     if kind == "none":
         return []
@@ -541,7 +645,7 @@ def _ear_shapes(rng, cx, cy, rx, ry, kind: str) -> list[list[tuple[float, float]
         elif kind == "pointy":    # 고양이 — 삼각 귀
             ex = cx + sx * rx * rng.uniform(0.46, 0.56)
             ey = cy - ry * rng.uniform(0.86, 0.98)
-            w, h = rx * 0.24 * wiggle, ry * 0.34 * wiggle
+            w, h = rx * 0.24 * wiggle * ear_scale, ry * 0.34 * wiggle * ear_scale
             shapes.append(_roughen([
                 (ex - w, ey + h * 0.55), (ex + sx * w * 0.25, ey - h * 0.75),
                 (ex + w, ey + h * 0.55), (ex - w, ey + h * 0.55),
@@ -696,7 +800,7 @@ def _limb_shapes(rng, trunk, cx, cy, body_rx, body_ry, rx, ry,
     left_deg -= limb_delta
     right_deg += limb_delta
 
-    shapes = []
+    shapes, tips = [], []
     for angle_deg in (left_deg, right_deg):
         a = math.radians(angle_deg)
         left_side = math.cos(a) < 0
@@ -713,6 +817,7 @@ def _limb_shapes(rng, trunk, cx, cy, body_rx, body_ry, rx, ry,
         shapes.append(_ribbon(_quad_bezier((x0, y0), mid, end),
                               rx * rng.uniform(0.115, 0.135),
                               rx * rng.uniform(0.085, 0.105)))
+        tips.append(end)
 
     for sx in (-1, 1):
         x0, y0 = _point_on(trunk, cx, cy, 90 + sx * rng.uniform(24, 42))
@@ -722,7 +827,7 @@ def _limb_shapes(rng, trunk, cx, cy, body_rx, body_ry, rx, ry,
         shapes.append(_ribbon(_quad_bezier((x0, y0), mid, foot),
                               rx * rng.uniform(0.115, 0.135),
                               rx * rng.uniform(0.105, 0.125)))
-    return shapes
+    return shapes, tips
 
 
 def _tail_shape(rng, trunk, cx, cy, body_rx, body_ry, rx,
@@ -900,6 +1005,36 @@ def _nod(t: float) -> Motion:
 MOTION_PRESETS = {"bounce": _bounce, "wiggle": _wiggle, "nod": _nod}
 
 
+# 떡냥이 — 찹쌀떡으로 만들어진 고양이.
+# 얼굴은 절대 안 변하고(점눈 + ω입 고정) 감정은 몸의 물성으로만 표현한다.
+TTEOKNYANGI = CharacterSpec(
+    color=(253, 251, 247, 255),   # 하얀 찹쌀떡
+    animal="cat",
+    rx_ratio=0.300, ry_ratio=0.285,
+    bulge=0.10,
+    eye_scale=0.80,               # 작은 검정 점눈
+    eye_spread=0.30,
+    ear="pointy",                 # 대충 그린 작은 세모 귀
+    ear_scale=0.62,
+    nose="none",                  # 코는 그리지 않는다
+    muzzle=False,
+    whiskers=False,
+    teeth=False,
+    tail="none",
+    one_piece=True,               # 2등신이 아니라 한 덩어리 블롭
+    fixed_face=True,
+    blush=True,
+    paw_pads=True,
+    name="떡냥이",
+)
+
+
+# 이름으로 불러 쓰는 확정 캐릭터들. 그림체까지 함께 못박아 세트가 흔들리지 않게 한다.
+NAMED_CHARACTERS: dict[str, tuple[CharacterSpec, str]] = {
+    "tteoknyangi": (TTEOKNYANGI, "mochi"),
+}
+
+
 DEFAULT_CHARACTER = CharacterSpec(
     color=(252, 249, 242, 255), animal="bear", rx_ratio=0.27, ry_ratio=0.27,
     bulge=0.10, eye_scale=1.1, eye_spread=0.39,
@@ -948,7 +1083,19 @@ def render_character(
     # --- 1) 머리 + 몸통을 나눠 동물 형태를 만든다 --------------------
     # 통짜 원 하나면 감자에 혹이 붙은 모양이 된다. 큰 머리 + 작은 몸통이
     # 겹쳐야 비로소 '동물'로 읽힌다.
-    if spec_char.neckless:
+    # 표정이 고정된 캐릭터는 감정을 몸 변형으로 전달한다
+    state = (BODY_STATES[EMOTION_BODY.get(keyword, "neutral")]
+             if spec_char.fixed_face else BodyState())
+    rx *= state.sx
+    ry *= state.sy
+    tilt += state.lean
+
+    if spec_char.one_piece:
+        # 1등신 — 머리와 몸이 한 덩어리. 얼굴은 이 덩어리 위쪽에 얹는다
+        head_cy = body_cy = cy
+        head_rx = body_rx = rx
+        head_ry = body_ry = ry
+    elif spec_char.neckless:
         # 기니피그처럼 목이 없는 체형 — 머리와 몸통을 크게 겹치고 폭을 비슷하게
         head_cy = cy - ry * 0.34
         head_rx, head_ry = rx * 0.80, ry * 0.64
@@ -963,14 +1110,26 @@ def render_character(
     # 왜곡은 약하게. 과하면 찌그러진 덩어리로 보인다.
     head = wobbly_ellipse(cx, head_cy, head_rx, head_ry, rng,
                           96, rng.uniform(0.018, 0.032) * brush.wobble, tilt=tilt)
-    trunk = wobbly_ellipse(cx + rng.uniform(-rx * 0.03, rx * 0.03), body_cy,
-                           body_rx, body_ry, rng, 72, rng.uniform(0.020, 0.035) * brush.wobble,
-                           tilt=tilt * 0.5, bulge=spec_char.bulge * 0.5)
-    ears = _ear_shapes(rng, cx, head_cy, head_rx, head_ry, spec_char.ear)
+    if spec_char.one_piece:
+        trunk = head
+    else:
+        trunk = wobbly_ellipse(cx + rng.uniform(-rx * 0.03, rx * 0.03), body_cy,
+                               body_rx, body_ry, rng,
+                               72, rng.uniform(0.020, 0.035) * brush.wobble,
+                               tilt=tilt * 0.5, bulge=spec_char.bulge * 0.5)
 
-    limbs = _limb_shapes(rng, trunk, cx, body_cy, body_rx, body_ry, rx, ry,
-                         face.get("pose", "down"), move.limb,
-                         limb_scale=0.66 if spec_char.neckless else 1.0)
+    # 감정에 따른 몸 변형은 난수를 다 쓴 *뒤에* 적용한다
+    if spec_char.fixed_face:
+        head = _apply_body_state(head, cx, head_cy, head_rx, head_ry, state)
+        trunk = head if spec_char.one_piece else _apply_body_state(
+            trunk, cx, body_cy, body_rx, body_ry, state)
+    ears = _ear_shapes(rng, cx, head_cy, head_rx, head_ry, spec_char.ear,
+                       ear_scale=spec_char.ear_scale)
+
+    limbs, limb_tips = _limb_shapes(
+        rng, trunk, cx, body_cy, body_rx, body_ry, rx, ry,
+        face.get("pose", "down"), move.limb + state.limb,
+        limb_scale=0.66 if spec_char.neckless else 1.0)
     tail = _tail_shape(rng, trunk, cx, body_cy, body_rx, body_ry, rx, spec_char.tail)
 
     cheeks: list[list[tuple[float, float]]] = []
@@ -1049,9 +1208,14 @@ def render_character(
 
     # --- 3) 얼굴 -------------------------------------------------------
     # 트렌드: 중안부가 길다. 눈은 위쪽에 작고 좁게, 입은 한참 아래에.
-    eye_y = head_cy - head_ry * rng.uniform(0.24, 0.32)
-    mouth_y = head_cy + head_ry * rng.uniform(0.34, 0.46)
-    nose_y = mouth_y - head_rx * rng.uniform(0.17, 0.23)
+    if spec_char.fixed_face:
+        eye_y = head_cy - head_ry * rng.uniform(0.04, 0.10)
+        mouth_y = head_cy + head_ry * rng.uniform(0.14, 0.20)
+        nose_y = mouth_y
+    else:
+        eye_y = head_cy - head_ry * rng.uniform(0.24, 0.32)
+        mouth_y = head_cy + head_ry * rng.uniform(0.34, 0.46)
+        nose_y = mouth_y - head_rx * rng.uniform(0.17, 0.23)
 
     # 흰둥이처럼 몸이 이미 밝으면 주둥이를 칠해도 보이지 않는다.
     # 대비가 안 나오는 칠은 그리지 않는 게 낫다 — 흰 얼룩만 남는다.
@@ -1061,6 +1225,10 @@ def render_character(
                                head_rx * 0.30, head_rx * 0.22, rng, 44, 0.06)
         canvas.paste(_lighten(body_color, 0.6), (0, 0),
                      _polygon_mask((S, S), snout))
+
+    if spec_char.fixed_face:
+        # 어떤 상황에서도 동그란 점눈과 작은 ω입은 변하지 않는다
+        face = {**face, "eyes": "dots", "mouth": "cat"}
 
     eye_dx = head_rx * spec_char.eye_spread
     _draw_eyes(draw, rng,
@@ -1079,8 +1247,27 @@ def render_character(
         if spec_char.teeth:
             _draw_teeth(draw, rng, cx, mouth_y + head_rx * 0.05, head_rx, lw)
 
+    if spec_char.paw_pads:
+        for tx, ty in limb_tips:
+            pad = wobbly_ellipse(tx, ty, rx * 0.062, rx * 0.052, rng, 28, 0.12)
+            canvas.paste(PAW_PINK, (0, 0),
+                         ImageChops.multiply(_polygon_mask((S, S), pad), silhouette))
+            for k in (-1, 0, 1):          # 발가락 세 점
+                px = tx + k * rx * 0.045
+                py = ty - rx * 0.062 - abs(k) * rx * 0.006
+                toe = wobbly_ellipse(px, py, rx * 0.020, rx * 0.018, rng, 20, 0.12)
+                canvas.paste(PAW_PINK, (0, 0),
+                             ImageChops.multiply(_polygon_mask((S, S), toe), silhouette))
+
+    if spec_char.fixed_face and state.cracks:
+        _draw_cracks(draw, rng, cx, cy, rx, ry, state.cracks, lw, brush.line_color)
+
     extras = list(face.get("extras", []))
-    if brush.blush and "blush" not in extras:
+    if spec_char.fixed_face:
+        # 눈썹은 표정을 바꾸는 요소라 제외한다. 하트·땀·효과선은 얼굴 밖이라 허용.
+        extras = [e for e in extras if e not in ("brows", "blush")]
+        _draw_blush_ovals(canvas, rng, cx, head_cy, head_rx, head_ry, S)
+    elif (spec_char.blush or brush.blush) and "blush" not in extras:
         extras.append("blush")
     _draw_extras(draw, rng, cx, head_cy, head_rx, head_ry, extras, lw)
 

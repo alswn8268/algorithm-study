@@ -26,8 +26,12 @@ class SketchGenerator(ImageGenerator):
         character_seed: int | None = None,
         animal: str | None = None,
         draw_style: str = "doodle",
+        named: str | None = None,
     ):
         self.draw_style = draw_style
+        if named:
+            # 확정 캐릭터는 생김새와 그림체가 한 쌍이라 같이 가져온다
+            character, self.draw_style = sketchgen.NAMED_CHARACTERS[named]
         if character is not None:
             self.character = character
         elif character_seed is not None:

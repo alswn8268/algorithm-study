@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 import numpy as np
 import pytest
 from PIL import Image
@@ -387,3 +389,114 @@ def test_guineapig_is_wider_than_tall():
     rows = np.where(alpha.any(axis=1))[0]
     cols = np.where(alpha.any(axis=0))[0]
     assert (cols.max() - cols.min()) > (rows.max() - rows.min())
+
+
+# --------------------------------------------------------------------------
+# 떡냥이 — 얼굴 고정, 몸이 연기하는 캐릭터
+# --------------------------------------------------------------------------
+
+def _silhouette_box(img):
+    alpha = np.array(img.convert("RGBA"))[:, :, 3] > 128
+    rows = np.where(alpha.any(axis=1))[0]
+    cols = np.where(alpha.any(axis=0))[0]
+    return cols.max() - cols.min(), rows.max() - rows.min()
+
+
+def test_body_is_solid_not_hollow():
+    """업로드된 시안의 실제 버그: 흰 몸이 흰 배경과 같은 색이라 배경 제거 시
+    몸통까지 지워져 다크모드에서 속이 뚫려 보였다.
+
+    이 렌더러는 투명 캔버스에 직접 그리므로 배경 제거 단계 자체가 없다.
+    몸 한가운데가 불투명한지 못박아 회귀를 막는다.
+    """
+    img = sketchgen.render_character("안녕", size=300, seed=5,
+                                     character=sketchgen.TTEOKNYANGI, draw_style="mochi")
+    arr = np.array(img.convert("RGBA"))
+    assert arr[2, 2, 3] == 0, "배경은 투명해야 한다"
+
+    alpha = arr[:, :, 3] > 128
+    rows = np.where(alpha.any(axis=1))[0]
+    cols = np.where(alpha.any(axis=0))[0]
+    cy = (rows.min() + rows.max()) // 2
+    cx = (cols.min() + cols.max()) // 2
+    assert arr[cy, cx, 3] > 250, "몸 한가운데가 비어 있다 (속 빈 윤곽)"
+
+    # 실루엣 내부가 대부분 채워져 있어야 한다
+    inner = alpha[rows.min():rows.max(), cols.min():cols.max()]
+    assert inner.mean() > 0.55
+
+
+def test_every_emotion_has_a_body_state():
+    for keyword in prompts.RECOMMENDED_EMOTION_SET:
+        assert keyword in sketchgen.EMOTION_BODY, keyword
+        assert sketchgen.EMOTION_BODY[keyword] in sketchgen.BODY_STATES, keyword
+
+
+def test_body_states_change_the_silhouette():
+    """얼굴이 고정이므로 실루엣이 감정을 전달해야 한다."""
+    def box(keyword):
+        return _silhouette_box(sketchgen.render_character(
+            keyword, size=300, seed=7, character=sketchgen.TTEOKNYANGI, draw_style="mochi"))
+
+    melt_w, melt_h = box("졸림")     # 녹아내림 — 넓고 납작
+    stretch_w, stretch_h = box("놀람")  # 늘어남 — 좁고 길쭉
+    assert melt_w / melt_h > stretch_w / stretch_h * 1.3
+
+
+def test_fixed_face_ignores_the_emotion_face():
+    """놀람은 원래 광기 눈인데, 표정 고정 캐릭터는 점눈을 유지해야 한다."""
+    fixed = sketchgen.TTEOKNYANGI
+    loose = replace(fixed, fixed_face=False)
+    a = sketchgen.render_character("놀람", size=220, seed=3, character=fixed, draw_style="mochi")
+    b = sketchgen.render_character("놀람", size=220, seed=3, character=loose, draw_style="mochi")
+    assert not np.array_equal(np.array(a), np.array(b))
+
+    # 광기 눈은 큰 흰자를 만든다 — 고정 얼굴에는 그 흰 덩어리가 없어야 한다
+    def sclera_pixels(img):
+        arr = np.array(img.convert("RGBA"))
+        top = arr[: arr.shape[0] // 2]
+        vis = top[top[:, :, 3] > 200][:, :3]
+        return int((vis.min(axis=1) > 250).sum())
+
+    assert sclera_pixels(a) < sclera_pixels(b)
+
+
+def test_cracks_only_appear_in_the_hardened_state():
+    def ink(keyword):
+        arr = np.array(sketchgen.render_character(
+            keyword, size=260, seed=4, character=sketchgen.TTEOKNYANGI,
+            draw_style="mochi").convert("RGBA"))
+        vis = arr[arr[:, :, 3] > 200][:, :3]
+        return int((vis @ np.array([0.2126, 0.7152, 0.0722]) < 110).sum())
+
+    assert sketchgen.BODY_STATES[sketchgen.EMOTION_BODY["삐짐"]].cracks > 0
+    assert sketchgen.BODY_STATES[sketchgen.EMOTION_BODY["안녕"]].cracks == 0
+    assert ink("삐짐") > ink("안녕")
+
+
+def test_paw_pads_are_drawn_in_pink():
+    img = sketchgen.render_character("안녕", size=300, seed=5,
+                                     character=sketchgen.TTEOKNYANGI, draw_style="mochi")
+    arr = np.array(img.convert("RGBA"))
+    vis = arr[arr[:, :, 3] > 200][:, :3].astype(int)
+    pink = (vis[:, 0] > 230) & (vis[:, 1] < 215) & (vis[:, 2] < 220) & (vis[:, 1] > 150)
+    assert pink.sum() > 100, "볼터치·젤리 발바닥의 분홍이 보이지 않는다"
+
+
+def test_one_piece_body_has_no_waist():
+    """떡냥이는 1등신 한 덩어리라 머리/몸통 사이 잘록함이 없어야 한다."""
+    img = sketchgen.render_character("안녕", size=300, seed=5,
+                                     character=sketchgen.TTEOKNYANGI, draw_style="mochi")
+    alpha = np.array(img.convert("RGBA"))[:, :, 3] > 128
+    rows = np.where(alpha.any(axis=1))[0]
+    top, height = rows.min(), rows.max() - rows.min()
+    widths = np.array([alpha[top + height * pct // 100].sum() for pct in range(15, 70)])
+    # 가운데가 위아래보다 확 좁아지는 지점이 없어야 한다
+    assert widths[15:40].min() > max(widths[:15].max(), widths[40:].max()) * 0.72
+
+
+def test_named_character_pairs_spec_with_style():
+    spec, style = sketchgen.NAMED_CHARACTERS["tteoknyangi"]
+    assert spec is sketchgen.TTEOKNYANGI
+    assert style == "mochi"
+    assert spec.fixed_face and spec.one_piece and spec.paw_pads

@@ -15,7 +15,7 @@ from . import kakao_spec, prompts
 from .backends import get_backend
 from .config import get_settings
 from .pipeline import generate_set
-from .sketchgen import ANIMALS, DRAW_STYLE_NAMES, MOTION_PRESETS
+from .sketchgen import ANIMALS, DRAW_STYLE_NAMES, MOTION_PRESETS, NAMED_CHARACTERS
 
 
 def _cmd_generate(args: argparse.Namespace) -> int:
@@ -31,6 +31,7 @@ def _cmd_generate(args: argparse.Namespace) -> int:
         backend_kwargs["character_seed"] = args.character_seed
         backend_kwargs["animal"] = args.animal
         backend_kwargs["draw_style"] = args.draw_style
+        backend_kwargs["named"] = args.character
     elif backend_name == "dalle":
         backend_kwargs["api_key"] = args.api_key or settings.openai_api_key
     elif backend_name == "stable_diffusion":
@@ -118,6 +119,19 @@ SUBMISSION_CHECKLIST: list[str] = [
 ]
 
 
+
+def _resolve_character(args, sketchgen):
+    """--character(확정 캐릭터) > --character-seed/--animal 순으로 결정한다."""
+    named = getattr(args, "character", None)
+    if named:
+        spec, style = sketchgen.NAMED_CHARACTERS[named]
+        return spec, style
+    style = getattr(args, "draw_style", "doodle")
+    if getattr(args, "character_seed", None) is not None:
+        return sketchgen.make_character(args.character_seed, animal=args.animal), style
+    return None, style
+
+
 def _cmd_samples(args: argparse.Namespace) -> int:
     """절차적 렌더러로 캐릭터 후보 / 표정 세트를 한 장에 뽑아 눈으로 비교한다."""
     from . import sketchgen
@@ -166,13 +180,10 @@ def _cmd_samples(args: argparse.Namespace) -> int:
             [k.strip() for k in args.emotions.split(",") if k.strip()]
             if args.emotions else prompts.RECOMMENDED_EMOTION_SET
         )
-        character = (
-            sketchgen.make_character(args.character_seed, animal=args.animal)
-            if args.character_seed is not None else None
-        )
+        character, style = _resolve_character(args, sketchgen)
         sheet = sketchgen.render_contact_sheet(
             keywords, cell=args.cell, cols=args.cols, seed=args.seed,
-            character=character, background=background, draw_style=args.draw_style,
+            character=character, background=background, draw_style=style,
         )
         print(f"표정 {len(keywords)}컷을 한 캐릭터로 렌더링했습니다.")
 
@@ -185,14 +196,11 @@ def _cmd_animate(args: argparse.Namespace) -> int:
     """움직이는 이모티콘용 GIF를 만든다."""
     from . import postprocess, sketchgen
 
-    character = (
-        sketchgen.make_character(args.character_seed, animal=args.animal)
-        if args.character_seed is not None else None
-    )
+    character, style = _resolve_character(args, sketchgen)
     frames = sketchgen.render_animation(
         args.keyword, size=args.size, seed=args.seed,
         character=character, frames=args.frames, kind=args.motion,
-        draw_style=args.draw_style,
+        draw_style=style,
     )
     out = postprocess.frames_to_gif(frames, args.out, duration_ms=args.duration)
     print(f"{args.keyword} · {args.motion} · {len(frames)}프레임 → {out}")
@@ -250,6 +258,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--draw-style", choices=DRAW_STYLE_NAMES, default="doodle",
         help="그림체 (styles 모드에서는 무시하고 전부 그립니다)",
     )
+    p_gen.add_argument(
+        "--character", choices=list(NAMED_CHARACTERS), default=None,
+        help="확정 캐릭터를 이름으로 불러옵니다 (생김새 + 그림체가 함께 고정됩니다)",
+    )
     p_gen.add_argument("--api-key", default=None, help="dalle 백엔드용 OpenAI API 키")
     p_gen.add_argument("--model", default=None, help="stable_diffusion 백엔드용 모델 ID")
     p_gen.add_argument("--device", default=None, help="stable_diffusion 백엔드용 device (cuda/cpu/mps)")
@@ -285,6 +297,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--draw-style", choices=DRAW_STYLE_NAMES, default="doodle",
         help="그림체 (styles 모드에서는 무시하고 전부 그립니다)",
     )
+    p_samp.add_argument(
+        "--character", choices=list(NAMED_CHARACTERS), default=None,
+        help="확정 캐릭터를 이름으로 불러옵니다",
+    )
     p_samp.add_argument("--dark", action="store_true", help="다크모드 배경에 올려 가독성 확인")
     p_samp.set_defaults(func=_cmd_samples)
 
@@ -300,6 +316,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_anim.add_argument(
         "--draw-style", choices=DRAW_STYLE_NAMES, default="doodle",
         help="그림체 (styles 모드에서는 무시하고 전부 그립니다)",
+    )
+    p_anim.add_argument(
+        "--character", choices=list(NAMED_CHARACTERS), default=None,
+        help="확정 캐릭터를 이름으로 불러옵니다",
     )
     p_anim.add_argument("--out", default="output/animated.gif")
     p_anim.set_defaults(func=_cmd_animate)

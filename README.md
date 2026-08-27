@@ -18,6 +18,14 @@ kakao-emoticon-gen samples --mode lineup --count 7 --out lineup.png
 그림체는 `doodle` / `chunky` / `pastel` / `sticker` / `mono` 5종 중 고릅니다.
 움직이는 이모티콘(GIF)도 `animate` 명령으로 뽑을 수 있습니다.
 
+확정 캐릭터 **떡냥이**(찹쌀떡 고양이)는 이름으로 바로 부를 수 있습니다 —
+얼굴은 고정이고 감정은 몸의 물성(부풀기·녹음·늘어남·굳음)으로 표현합니다.
+
+```bash
+kakao-emoticon-gen generate --emotions "기쁨,졸림,놀람,화남" \
+    --backend sketch --character tteoknyangi --fit canvas --seed 11 --jitter 0
+```
+
 > ⚠️ **면책 조항**: 이 도구는 제작 과정을 자동화/보조할 뿐입니다.
 > 최종 이미지는 반드시 **사람이 직접 검수**하고, 기존 캐릭터·브랜드와
 > 유사성이 없는지 확인한 뒤 제출하세요. 저작권 침해 여부에 대한 최종
@@ -219,6 +227,7 @@ python -m kakao_emoticon_gen.cli list-emotions
 | `--character-seed` | `sketch` 백엔드의 캐릭터 디자인. **세트 내내 같은 값**을 써야 같은 캐릭터가 됩니다 |
 | `--animal` | 동물 종류 (`bear`/`hamster`/`rabbit`/`cat`/`dog`/`duck`/`seal`/`guineapig`) |
 | `--draw-style` | 그림체 (`doodle`/`chunky`/`pastel`/`sticker`/`mono`). 세트 내내 같은 값을 쓰세요 |
+| `--character` | 확정 캐릭터를 이름으로 (`tteoknyangi`). 생김새 + 그림체가 함께 고정됩니다 |
 
 결과물:
 
